@@ -7,575 +7,639 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Finance">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#1a1a2e">
+<meta name="theme-color" content="#0d1117">
 <title>Finance Dashboard</title>
 
-<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiRmluYW5jZSBEYXNoYm9hcmQiLCJzaG9ydF9uYW1lIjoiRmluYW5jZSIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjMWExYTJlIiwidGhlbWVfY29sb3IiOiIjMWExYTJlIiwiaWNvbnMiOlt7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbCwlM0NzdmcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJyB2aWV3Qm94PScwIDAgMTAwIDEwMCclM0UlM0NyZWN0IHdpZHRoPScxMDAnIGhlaWdodD0nMTAwJyByeD0nMjAnIGZpbGw9JyUyMzFhMWEyZSclMkYlM0UlM0N0ZXh0IHg9JzUwJyB5PSc2NScgZm9udC1zaXplPSc1MCcgdGV4dC1hbmNob3I9J21pZGRsZScgZmlsbD0nJTIzNGVjZGM0JyUzRSUyNCUzQyUyRnRleHQlM0UlM0MlMkZzdmclM0UiLCJzaXplcyI6ImFueSIsInR5cGUiOiJpbWFnZS9zdmcreG1sIn1dfQ==">
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiRmluYW5jZSBEYXNoYm9hcmQiLCJzaG9ydF9uYW1lIjoiRmluYW5jZSIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjMGQxMTE3IiwidGhlbWVfY29sb3IiOiIjMGQxMTE3IiwiaWNvbnMiOlt7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbCwlM0NzdmcgeG1sbnM9J2h0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnJyB2aWV3Qm94PScwIDAgMTAwIDEwMCclM0UlM0NyZWN0IHdpZHRoPScxMDAnIGhlaWdodD0nMTAwJyByeD0nMjAnIGZpbGw9JyUyMzBkMTExNyclMkYlM0UlM0N0ZXh0IHg9JzUwJyB5PSc2NScgZm9udC1zaXplPSc1MCcgdGV4dC1hbmNob3I9J21pZGRsZScgZmlsbD0nJTIzNThmZmVhJyUzRSUyNCUzQyUyRnRleHQlM0UlM0MlMkZzdmclM0UiLCJzaXplcyI6ImFueSIsInR5cGUiOiJpbWFnZS9zdmcreG1sIn1dfQ==">
 
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,700&family=Space+Mono:wght@400;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,700&family=JetBrains+Mono:wght@400;600;700&display=swap');
 
   :root {
-    --bg-primary: #1a1a2e;
-    --bg-secondary: #16213e;
-    --accent: #4ecdc4;
-    --accent-warm: #e8b84b;
-    --text-primary: #e8e8e8;
-    --text-secondary: #8892a4;
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2129;
+    --border: rgba(255,255,255,0.06);
+    --accent: #58ffea;
+    --accent-dim: rgba(88,255,234,0.12);
+    --accent-glow: rgba(88,255,234,0.25);
+    --gold: #f0b429;
+    --text1: #e6edf3;
+    --text2: #8b949e;
+    --text3: #484f58;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
   }
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
     height: 100%; width: 100%;
-    overflow: hidden;
     font-family: 'DM Sans', sans-serif;
-    background: var(--bg-primary);
-    color: var(--text-primary);
+    background: var(--bg);
+    color: var(--text1);
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
-  /* ========== SCREEN: SPLASH ========== */
+  /* ================================================
+     SAFE AREA WRAPPER — pushes ALL content below
+     Dynamic Island / notch / status bar
+     ================================================ */
+  .safe-area-pad {
+    padding-top: var(--safe-top);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ================================================
+     SPLASH
+     ================================================ */
   .screen {
     position: fixed; inset: 0; z-index: 10;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: var(--bg-primary);
-    transition: opacity 0.4s ease, visibility 0.4s ease;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: opacity 0.45s ease, visibility 0.45s ease;
   }
-  .screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .screen.out { opacity: 0; visibility: hidden; pointer-events: none; }
 
   #splash { z-index: 100; }
-  .splash-icon {
-    width: 88px; height: 88px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-warm));
-    border-radius: 22px;
+  .s-icon {
+    width: 80px; height: 80px;
+    background: linear-gradient(135deg, var(--accent), var(--gold));
+    border-radius: 20px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 44px;
-    animation: pulse 1.5s ease-in-out infinite;
-    box-shadow: 0 8px 40px rgba(78, 205, 196, 0.3);
+    font-size: 40px;
+    box-shadow: 0 0 40px var(--accent-glow), 0 8px 24px rgba(0,0,0,0.4);
+    animation: breathe 2s ease-in-out infinite;
   }
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.06); }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 40px var(--accent-glow), 0 8px 24px rgba(0,0,0,0.4); }
+    50% { transform: scale(1.05); box-shadow: 0 0 56px var(--accent-glow), 0 12px 32px rgba(0,0,0,0.5); }
   }
-  .splash-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 20px; margin-top: 20px;
-    letter-spacing: 4px; text-transform: uppercase; color: var(--accent);
+  .s-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; font-weight: 700;
+    margin-top: 18px; letter-spacing: 5px;
+    text-transform: uppercase; color: var(--accent);
   }
-  .splash-sub { font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
-  .splash-loader {
-    margin-top: 36px; width: 100px; height: 3px;
-    background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;
+  .s-sub { font-size: 12px; color: var(--text3); margin-top: 4px; letter-spacing: 1px; }
+  .s-bar {
+    margin-top: 32px; width: 80px; height: 3px;
+    background: var(--bg2); border-radius: 3px; overflow: hidden;
   }
-  .splash-loader::after {
+  .s-bar::after {
     content: ''; display: block; width: 40%; height: 100%;
     background: var(--accent); border-radius: 3px;
-    animation: slide 0.9s ease-in-out infinite;
+    animation: barslide 0.8s ease-in-out infinite;
   }
-  @keyframes slide {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(350%); }
-  }
+  @keyframes barslide { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
 
-  /* ========== SCREEN: LOGIN ========== */
-  #login-screen { z-index: 50; padding: 32px 28px; }
-
-  .login-header {
-    text-align: center; margin-bottom: 48px;
+  /* ================================================
+     LOGIN SCREEN
+     ================================================ */
+  #login { z-index: 50; }
+  .login-content {
+    width: 100%;
+    padding: 0 28px;
+    padding-top: calc(var(--safe-top) + 20px);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    flex: 1;
   }
-  .login-icon {
-    width: 72px; height: 72px; margin: 0 auto 16px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-warm));
+  .l-icon {
+    width: 72px; height: 72px;
+    background: linear-gradient(135deg, var(--accent), var(--gold));
     border-radius: 18px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 36px;
-    box-shadow: 0 6px 28px rgba(78, 205, 196, 0.25);
+    font-size: 36px; margin-bottom: 20px;
+    box-shadow: 0 0 32px var(--accent-glow);
   }
-  .login-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 22px; font-weight: 700; margin-bottom: 8px;
+  .l-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px; font-weight: 700; margin-bottom: 10px;
+    text-align: center;
   }
-  .login-desc {
-    font-size: 14px; color: var(--text-secondary); line-height: 1.6;
-    max-width: 300px; margin: 0 auto;
+  .l-desc {
+    font-size: 14px; color: var(--text2); line-height: 1.6;
+    text-align: center; max-width: 280px; margin-bottom: 40px;
   }
 
-  .google-btn {
+  .g-btn {
     display: flex; align-items: center; justify-content: center; gap: 12px;
-    width: 100%; max-width: 320px; margin: 0 auto;
+    width: 100%; max-width: 300px;
     padding: 16px 24px;
     background: #fff; color: #3c4043;
     border: none; border-radius: 14px;
     font-family: 'DM Sans', sans-serif;
     font-size: 15px; font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.2);
+    transition: transform 0.12s;
   }
-  .google-btn:active {
-    transform: scale(0.97);
-    box-shadow: 0 1px 6px rgba(0,0,0,0.1);
-  }
-  .google-btn svg { flex-shrink: 0; }
+  .g-btn:active { transform: scale(0.97); }
+  .g-btn svg { flex-shrink: 0; }
 
-  .login-note {
-    text-align: center; margin-top: 24px;
-    font-size: 11px; color: var(--text-secondary); opacity: 0.5;
-    line-height: 1.6; max-width: 280px; margin-left: auto; margin-right: auto;
+  .l-note {
+    margin-top: 20px; text-align: center;
+    font-size: 11px; color: var(--text3); line-height: 1.6; max-width: 260px;
   }
 
-  /* ========== SCREEN: URL SETUP ========== */
-  #url-screen { z-index: 40; padding: 32px 24px; }
-
-  .url-header { text-align: center; margin-bottom: 36px; }
-  .url-header-emoji { font-size: 48px; margin-bottom: 12px; }
-  .url-header h2 {
-    font-family: 'Space Mono', monospace;
-    font-size: 18px; margin-bottom: 8px;
+  /* ================================================
+     URL SETUP SCREEN
+     ================================================ */
+  #urlsetup { z-index: 40; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .url-content {
+    width: 100%; min-height: 100%;
+    padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 40px);
+    display: flex; flex-direction: column; align-items: center;
   }
-  .url-header p {
-    font-size: 13px; color: var(--text-secondary); line-height: 1.6;
-    max-width: 300px; margin: 0 auto;
+  .u-emoji { font-size: 48px; margin-bottom: 14px; }
+  .u-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px; font-weight: 700; margin-bottom: 8px; text-align: center;
+  }
+  .u-desc {
+    font-size: 13px; color: var(--text2); text-align: center;
+    line-height: 1.6; max-width: 300px; margin-bottom: 28px;
   }
 
-  .url-input {
-    width: 100%; padding: 16px;
-    border: 2px solid rgba(78, 205, 196, 0.2);
-    border-radius: 14px; background: var(--bg-secondary);
-    color: var(--text-primary); font-family: 'DM Sans', sans-serif;
+  .u-input {
+    width: 100%; max-width: 400px; padding: 16px;
+    border: 2px solid rgba(88,255,234,0.15);
+    border-radius: 14px; background: var(--bg2);
+    color: var(--text1); font-family: 'DM Sans', sans-serif;
     font-size: 14px; outline: none; transition: border-color 0.2s;
   }
-  .url-input:focus { border-color: var(--accent); }
-  .url-input::placeholder { color: var(--text-secondary); opacity: 0.4; }
+  .u-input:focus { border-color: var(--accent); }
+  .u-input::placeholder { color: var(--text3); }
 
-  .url-submit {
-    width: 100%; margin-top: 16px; padding: 16px;
+  .u-btn {
+    width: 100%; max-width: 400px; margin-top: 14px; padding: 16px;
     border: none; border-radius: 14px;
-    background: linear-gradient(135deg, var(--accent), #3db8b0);
-    color: var(--bg-primary); font-family: 'Space Mono', monospace;
+    background: linear-gradient(135deg, var(--accent), #3dd9c9);
+    color: var(--bg); font-family: 'JetBrains Mono', monospace;
     font-size: 14px; font-weight: 700; letter-spacing: 1px;
-    cursor: pointer; box-shadow: 0 4px 20px rgba(78, 205, 196, 0.3);
-    transition: transform 0.15s;
+    cursor: pointer; box-shadow: 0 4px 20px var(--accent-glow);
+    transition: transform 0.12s;
   }
-  .url-submit:active { transform: scale(0.97); }
+  .u-btn:active { transform: scale(0.97); }
 
-  .url-hint {
-    margin-top: 16px; text-align: center;
-    font-size: 11px; color: var(--text-secondary); opacity: 0.5; line-height: 1.6;
+  .u-hint {
+    margin-top: 14px; text-align: center;
+    font-size: 11px; color: var(--text3); line-height: 1.6;
   }
 
-  .url-steps {
-    margin-top: 32px; padding: 20px;
-    background: var(--bg-secondary); border-radius: 14px;
-    border: 1px solid rgba(255,255,255,0.04);
+  .u-steps {
+    width: 100%; max-width: 400px;
+    margin-top: 28px; padding: 20px;
+    background: var(--bg2); border-radius: 14px;
+    border: 1px solid var(--border);
   }
-  .url-steps-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 11px; text-transform: uppercase;
-    letter-spacing: 1.5px; color: var(--accent); margin-bottom: 14px;
+  .u-steps-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 2px; color: var(--accent); margin-bottom: 14px;
   }
-  .step {
+  .stp {
     display: flex; align-items: flex-start; gap: 12px;
-    margin-bottom: 12px;
-    font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+    margin-bottom: 12px; font-size: 13px;
+    color: var(--text2); line-height: 1.5;
   }
-  .step:last-child { margin-bottom: 0; }
-  .step-num {
-    width: 24px; height: 24px; flex-shrink: 0;
-    background: rgba(78,205,196,0.1); border-radius: 8px;
+  .stp:last-child { margin-bottom: 0; }
+  .stp-n {
+    width: 22px; height: 22px; flex-shrink: 0;
+    background: var(--accent-dim); border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Space Mono', monospace; font-size: 11px;
-    color: var(--accent); font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700; color: var(--accent);
+  }
+  .stp strong { color: var(--text1); font-weight: 600; }
+
+  /* ================================================
+     HOME SCREEN (after setup — launcher)
+     ================================================ */
+  #home { z-index: 30; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .home-content {
+    width: 100%; min-height: 100%;
+    padding: calc(var(--safe-top) + 16px) 20px calc(var(--safe-bottom) + 32px);
+    display: flex; flex-direction: column;
   }
 
-  /* ========== DASHBOARD (full screen) ========== */
-  #dashboard-view {
-    position: fixed; inset: 0; z-index: 5;
-    background: #fff;
-    display: none;
+  .home-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 28px;
   }
-  #dashboard-view.active { display: block; }
+  .hh-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--gold));
+    border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+  .hh-text h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px; font-weight: 700; letter-spacing: 2px;
+  }
+  .hh-text p { font-size: 11px; color: var(--text3); margin-top: 1px; }
 
-  #dashboard-view iframe {
-    width: 100%; height: 100%; border: none;
-    background: #fff;
+  /* Main CTA card */
+  .cta-card {
+    background: linear-gradient(145deg, var(--bg2), var(--bg3));
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px 24px;
+    text-align: center;
+    margin-bottom: 20px;
   }
+  .cta-icon { font-size: 48px; margin-bottom: 14px; }
+  .cta-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px; font-weight: 700; margin-bottom: 6px;
+  }
+  .cta-desc { font-size: 13px; color: var(--text2); margin-bottom: 24px; line-height: 1.5; }
+  .cta-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 16px 36px; border: none; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), #3dd9c9);
+    color: var(--bg); font-family: 'JetBrains Mono', monospace;
+    font-size: 14px; font-weight: 700; letter-spacing: 1px;
+    cursor: pointer; box-shadow: 0 4px 24px var(--accent-glow);
+    transition: transform 0.12s;
+    text-decoration: none;
+  }
+  .cta-btn:active { transform: scale(0.96); }
 
-  /* Tiny settings gear - bottom right corner */
-  .settings-fab {
-    position: fixed; bottom: 16px; right: 16px; z-index: 20;
-    width: 36px; height: 36px;
-    background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: none; border-radius: 50%;
-    color: rgba(255,255,255,0.6); font-size: 16px;
-    cursor: pointer; display: none;
-    align-items: center; justify-content: center;
-    transition: opacity 0.3s;
-    opacity: 0.4;
+  /* Action grid */
+  .act-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+    margin-bottom: 24px;
   }
-  .settings-fab:active { opacity: 1; }
-  .settings-fab.active { display: flex; }
+  .act-item {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 10px;
+    text-align: center; cursor: pointer;
+    transition: transform 0.12s, border-color 0.2s;
+  }
+  .act-item:active { transform: scale(0.95); border-color: rgba(88,255,234,0.2); }
+  .act-emoji { font-size: 22px; margin-bottom: 6px; }
+  .act-label { font-size: 11px; color: var(--text2); font-weight: 500; }
 
-  /* Settings overlay */
-  #settings-overlay {
-    position: fixed; inset: 0; z-index: 60;
-    background: rgba(0,0,0,0.8);
-    display: none; align-items: flex-end; justify-content: center;
+  /* Status */
+  .status {
+    padding: 14px 16px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(88,255,234,0.12);
+    border-radius: 12px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
   }
-  #settings-overlay.show { display: flex; }
-  .settings-card {
-    background: var(--bg-primary);
-    border-radius: 20px 20px 0 0;
-    padding: 28px 24px 40px;
-    width: 100%; max-width: 420px;
+  .status-dot {
+    width: 7px; height: 7px; background: var(--accent);
+    border-radius: 50%; animation: blink 2s ease-in-out infinite;
   }
-  .settings-card h3 {
-    font-family: 'Space Mono', monospace;
-    color: var(--accent); font-size: 14px; margin-bottom: 20px;
-    text-transform: uppercase; letter-spacing: 2px;
-  }
-  .settings-option {
-    padding: 16px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    display: flex; align-items: center; gap: 14px;
-    cursor: pointer; font-size: 14px; color: var(--text-secondary);
-  }
-  .settings-option:last-child { border-bottom: none; }
-  .settings-option:active { color: var(--text-primary); }
-  .settings-option .opt-icon { font-size: 18px; width: 24px; text-align: center; }
-  .settings-close {
-    margin-top: 16px; width: 100%; padding: 14px;
-    border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
-    background: none; color: var(--text-secondary);
-    font-family: 'Space Mono', monospace; font-size: 12px;
-    cursor: pointer;
-  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
 
-  /* ========== INSTALL BANNER ========== */
+  /* ================================================
+     INSTALL BANNER
+     ================================================ */
   #install-banner {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
-    background: var(--bg-secondary); border-top: 1px solid rgba(78, 205, 196, 0.2);
-    padding: 16px 20px; display: flex; align-items: center; gap: 14px;
-    transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: fixed;
+    bottom: 0; left: 0; right: 0; z-index: 200;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 16px 20px;
+    padding-bottom: calc(16px + var(--safe-bottom));
+    display: flex; align-items: center; gap: 14px;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   }
   #install-banner.show { transform: translateY(0); }
-  .install-text { flex: 1; }
-  .install-text strong { display: block; font-size: 14px; margin-bottom: 2px; }
-  .install-text span { font-size: 12px; color: var(--text-secondary); }
-  .install-btn {
+  .ib-text { flex: 1; }
+  .ib-text strong { display: block; font-size: 14px; margin-bottom: 2px; }
+  .ib-text span { font-size: 12px; color: var(--text2); }
+  .ib-btn {
     padding: 10px 20px; border: none; border-radius: 10px;
-    background: var(--accent); color: var(--bg-primary);
-    font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; cursor: pointer;
+    background: var(--accent); color: var(--bg);
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; cursor: pointer;
   }
-  .install-dismiss { background: none; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; }
+  .ib-x { background: none; border: none; color: var(--text3); font-size: 18px; cursor: pointer; }
 
   /* iOS Guide */
   #ios-guide {
     position: fixed; inset: 0; z-index: 300;
-    background: rgba(0,0,0,0.7); display: none; align-items: flex-end; justify-content: center;
+    background: rgba(0,0,0,0.75);
+    display: none; align-items: flex-end; justify-content: center;
   }
   #ios-guide.show { display: flex; }
-  .ios-guide-card {
-    background: var(--bg-secondary); border-radius: 20px 20px 0 0;
-    padding: 28px 24px 40px; width: 100%; max-width: 420px; text-align: center;
+  .ios-card {
+    background: var(--bg2); border-radius: 20px 20px 0 0;
+    padding: 28px 24px calc(28px + var(--safe-bottom));
+    width: 100%; max-width: 420px; text-align: center;
   }
-  .ios-guide-card h3 { font-family: 'Space Mono', monospace; color: var(--accent); margin-bottom: 16px; }
-  .ios-steps { text-align: left; font-size: 14px; line-height: 2.2; color: var(--text-secondary); }
-  .ios-steps span { color: var(--text-primary); font-weight: 500; }
-  .ios-close {
-    margin-top: 20px; padding: 12px 32px; border: 1px solid var(--accent);
-    border-radius: 10px; background: none; color: var(--accent);
-    font-family: 'Space Mono', monospace; font-size: 13px; cursor: pointer;
+  .ios-card h3 {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent); margin-bottom: 18px; font-size: 15px;
   }
+  .ios-card .ios-steps {
+    text-align: left; font-size: 14px; line-height: 2.2; color: var(--text2);
+  }
+  .ios-card .ios-steps span { color: var(--text1); font-weight: 600; }
+  .ios-card button {
+    margin-top: 20px; padding: 12px 32px;
+    border: 1px solid var(--accent); border-radius: 10px;
+    background: none; color: var(--accent);
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; cursor: pointer;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: calc(24px + var(--safe-bottom)); left: 50%;
+    transform: translateX(-50%) translateY(16px);
+    background: var(--bg3); border: 1px solid rgba(88,255,234,0.2);
+    color: var(--accent); padding: 12px 24px; border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    opacity: 0; transition: all 0.3s; z-index: 150; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
 
-<!-- ===== SPLASH ===== -->
+<!-- SPLASH -->
 <div class="screen" id="splash">
-  <div class="splash-icon">💰</div>
-  <div class="splash-title">Finance</div>
-  <div class="splash-sub">Dashboard</div>
-  <div class="splash-loader"></div>
+  <div class="s-icon">💰</div>
+  <div class="s-name">Finance</div>
+  <div class="s-sub">Personal Dashboard</div>
+  <div class="s-bar"></div>
 </div>
 
-<!-- ===== LOGIN SCREEN ===== -->
-<div class="screen hidden" id="login-screen">
-  <div class="login-header">
-    <div class="login-icon">💰</div>
-    <div class="login-title">Finance Dashboard</div>
-    <div class="login-desc">Sign in with your Google account to access the dashboard</div>
-  </div>
+<!-- LOGIN -->
+<div class="screen out" id="login">
+  <div class="login-content">
+    <div class="l-icon">💰</div>
+    <div class="l-title">Finance Dashboard</div>
+    <div class="l-desc">Sign in with Google first to access your Looker Studio reports</div>
 
-  <button class="google-btn" onclick="googleSignIn()">
-    <svg width="20" height="20" viewBox="0 0 48 48">
-      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-      <path fill="#34A853" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-      <path fill="#FBBC05" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-    </svg>
-    Sign in with Google
-  </button>
+    <button class="g-btn" onclick="doGoogleSignIn()">
+      <svg width="20" height="20" viewBox="0 0 48 48">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#34A853" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#FBBC05" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg>
+      Sign in with Google
+    </button>
 
-  <div class="login-note">
-    This opens Google sign-in so you can<br>access Looker Studio reports securely.
+    <div class="l-note">Opens Google sign-in so your browser<br>has an active session for the dashboard.</div>
   </div>
 </div>
 
-<!-- ===== URL SETUP SCREEN ===== -->
-<div class="screen hidden" id="url-screen">
-  <div class="url-header">
-    <div class="url-header-emoji">📊</div>
-    <h2>Connect Dashboard</h2>
-    <p>Paste your Looker Studio report link below</p>
-  </div>
+<!-- URL SETUP -->
+<div class="screen out" id="urlsetup">
+  <div class="url-content">
+    <div class="u-emoji">📊</div>
+    <div class="u-title">Connect Dashboard</div>
+    <div class="u-desc">Paste your Looker Studio report link below. You only need to do this once.</div>
 
-  <input class="url-input" id="url-input" type="url"
-    placeholder="https://lookerstudio.google.com/reporting/...">
-  <button class="url-submit" onclick="saveDashboardUrl()">LOAD DASHBOARD</button>
-  <div class="url-hint">Your link is saved on this device — you only need to do this once.</div>
+    <input class="u-input" id="url-input" type="url"
+      placeholder="https://lookerstudio.google.com/reporting/...">
+    <button class="u-btn" onclick="saveUrl()">SAVE & OPEN</button>
+    <div class="u-hint">Saved locally on your device</div>
 
-  <div class="url-steps">
-    <div class="url-steps-title">How to get the link</div>
-    <div class="step">
-      <div class="step-num">1</div>
-      <div>Open your Looker Studio report on desktop</div>
-    </div>
-    <div class="step">
-      <div class="step-num">2</div>
-      <div>Click <strong style="color:var(--text-primary)">File → Embed Report</strong></div>
-    </div>
-    <div class="step">
-      <div class="step-num">3</div>
-      <div>Check <strong style="color:var(--text-primary)">Enable embedding</strong>, then copy the URL inside the iframe src="..."</div>
+    <div class="u-steps">
+      <div class="u-steps-title">How to get the link</div>
+      <div class="stp">
+        <div class="stp-n">1</div>
+        <div>Open your report in <strong>Looker Studio</strong> on desktop</div>
+      </div>
+      <div class="stp">
+        <div class="stp-n">2</div>
+        <div>Copy the <strong>URL from the address bar</strong></div>
+      </div>
+      <div class="stp">
+        <div class="stp-n">3</div>
+        <div>Paste it here — that's it!</div>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ===== DASHBOARD VIEW (full screen) ===== -->
-<div id="dashboard-view">
-  <iframe id="dashboard-iframe" allow="fullscreen" loading="lazy"
-    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-storage-access-by-user-activation"
-    referrerpolicy="no-referrer-when-downgrade"></iframe>
-</div>
+<!-- HOME (launcher) -->
+<div class="screen out" id="home">
+  <div class="home-content">
+    <div class="home-header">
+      <div class="hh-icon">💰</div>
+      <div class="hh-text">
+        <h1>FINANCE</h1>
+        <p>Personal Dashboard</p>
+      </div>
+    </div>
 
-<!-- Settings FAB -->
-<button class="settings-fab" id="settings-fab" onclick="openSettings()">⚙</button>
+    <div class="cta-card">
+      <div class="cta-icon">📊</div>
+      <div class="cta-title">Your Dashboard</div>
+      <div class="cta-desc">Tap below to open your finance dashboard</div>
+      <button class="cta-btn" onclick="openDashboard()">OPEN DASHBOARD →</button>
+    </div>
 
-<!-- Settings Overlay -->
-<div id="settings-overlay">
-  <div class="settings-card">
-    <h3>Settings</h3>
-    <div class="settings-option" onclick="refreshDashboard()">
-      <span class="opt-icon">🔄</span>
-      <span>Refresh Dashboard</span>
+    <div class="act-grid">
+      <div class="act-item" onclick="openDashboard()">
+        <div class="act-emoji">🚀</div>
+        <div class="act-label">Open</div>
+      </div>
+      <div class="act-item" onclick="shareDashboard()">
+        <div class="act-emoji">🔗</div>
+        <div class="act-label">Share</div>
+      </div>
+      <div class="act-item" onclick="resetApp()">
+        <div class="act-emoji">⚙️</div>
+        <div class="act-label">Reset</div>
+      </div>
     </div>
-    <div class="settings-option" onclick="changeUrl()">
-      <span class="opt-icon">🔗</span>
-      <span>Change Dashboard URL</span>
+
+    <div class="status">
+      <div class="status-dot"></div>
+      <span>Dashboard connected</span>
     </div>
-    <div class="settings-option" onclick="signOut()">
-      <span class="opt-icon">🚪</span>
-      <span>Sign Out & Reset</span>
-    </div>
-    <button class="settings-close" onclick="closeSettings()">CLOSE</button>
   </div>
 </div>
 
-<!-- Install Banner -->
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- INSTALL BANNER -->
 <div id="install-banner">
-  <div class="install-text">
+  <div class="ib-text">
     <strong>Install Finance App</strong>
     <span>Add to home screen for quick access</span>
   </div>
-  <button class="install-btn" onclick="installApp()">INSTALL</button>
-  <button class="install-dismiss" onclick="dismissInstall()">✕</button>
+  <button class="ib-btn" onclick="installApp()">INSTALL</button>
+  <button class="ib-x" onclick="dismissInstall()">✕</button>
 </div>
 
-<!-- iOS Guide -->
+<!-- iOS GUIDE -->
 <div id="ios-guide">
-  <div class="ios-guide-card">
+  <div class="ios-card">
     <h3>Install on iPhone</h3>
     <div class="ios-steps">
-      1. Tap the <span>Share</span> button ( ↑ ) below<br>
+      1. Tap the <span>Share</span> button ( ↑ ) in Safari<br>
       2. Scroll and tap <span>Add to Home Screen</span><br>
       3. Tap <span>Add</span> — done!
     </div>
-    <button class="ios-close" onclick="closeIosGuide()">GOT IT</button>
+    <button onclick="closeIosGuide()">GOT IT</button>
   </div>
 </div>
 
 <script>
-  // ===== STORAGE KEYS =====
-  const KEY_URL = 'fin_dashboard_url';
-  const KEY_SIGNED_IN = 'fin_signed_in';
+  // ===== KEYS =====
+  const K_URL = 'fin_url';
+  const K_AUTH = 'fin_auth';
 
-  // ===== SCREENS =====
-  const $splash = document.getElementById('splash');
-  const $login = document.getElementById('login-screen');
-  const $urlScreen = document.getElementById('url-screen');
-  const $dashboard = document.getElementById('dashboard-view');
-  const $iframe = document.getElementById('dashboard-iframe');
-  const $fab = document.getElementById('settings-fab');
+  // ===== ELEMENTS =====
+  const $ = id => document.getElementById(id);
 
-  function showScreen(screen) {
-    [$login, $urlScreen].forEach(s => s.classList.add('hidden'));
-    $dashboard.classList.remove('active');
-    $fab.classList.remove('active');
-
-    if (screen === 'login') {
-      $login.classList.remove('hidden');
-    } else if (screen === 'url') {
-      $urlScreen.classList.remove('hidden');
-    } else if (screen === 'dashboard') {
-      $dashboard.classList.add('active');
-      $fab.classList.add('active');
-    }
+  // ===== SCREEN MANAGEMENT =====
+  function go(name) {
+    ['login', 'urlsetup', 'home'].forEach(s => {
+      $(s).classList.toggle('out', s !== name);
+    });
   }
 
   // ===== INIT =====
   window.addEventListener('load', () => {
     setTimeout(() => {
-      $splash.classList.add('hidden');
-      routeUser();
-    }, 1400);
+      $('splash').classList.add('out');
+      route();
+    }, 1300);
   });
 
-  function routeUser() {
-    const signedIn = localStorage.getItem(KEY_SIGNED_IN);
-    const savedUrl = localStorage.getItem(KEY_URL);
+  function route() {
+    const authed = localStorage.getItem(K_AUTH);
+    const url = localStorage.getItem(K_URL);
 
-    if (!signedIn) {
-      showScreen('login');
-    } else if (!savedUrl) {
-      showScreen('url');
+    if (!authed) {
+      go('login');
+    } else if (!url) {
+      go('urlsetup');
     } else {
-      loadDashboard(savedUrl);
+      go('home');
     }
   }
 
   // ===== GOOGLE SIGN-IN =====
-  function googleSignIn() {
-    // Open Google accounts page in a popup for auth
-    const authWindow = window.open(
+  function doGoogleSignIn() {
+    // Opens Google sign-in targeting Looker Studio
+    const popup = window.open(
       'https://accounts.google.com/ServiceLogin?continue=https://lookerstudio.google.com/',
-      '_blank',
-      'width=480,height=640'
+      '_blank'
     );
 
-    // Listen for the popup to close (user finished signing in)
-    const checkInterval = setInterval(() => {
-      if (authWindow && authWindow.closed) {
-        clearInterval(checkInterval);
-        // Mark as signed in
-        localStorage.setItem(KEY_SIGNED_IN, 'true');
-
-        const savedUrl = localStorage.getItem(KEY_URL);
-        if (savedUrl) {
-          loadDashboard(savedUrl);
-        } else {
-          showScreen('url');
+    // Poll until user closes the sign-in tab/window
+    const poll = setInterval(() => {
+      try {
+        if (!popup || popup.closed) {
+          clearInterval(poll);
+          localStorage.setItem(K_AUTH, '1');
+          toast('Signed in ✓');
+          const url = localStorage.getItem(K_URL);
+          if (url) {
+            go('home');
+          } else {
+            go('urlsetup');
+          }
         }
+      } catch(e) {
+        // cross-origin — still open, keep polling
       }
-    }, 500);
+    }, 600);
   }
 
-  // ===== SAVE URL =====
-  function saveDashboardUrl() {
-    let url = document.getElementById('url-input').value.trim();
+  // ===== URL =====
+  function saveUrl() {
+    let url = $('url-input').value.trim();
     if (!url) return;
 
-    // Ensure it's an embed URL
-    if (url.includes('lookerstudio.google.com') && !url.includes('/embed/')) {
-      url = url.replace('/reporting/', '/embed/reporting/');
-    }
-    if (url.includes('datastudio.google.com') && !url.includes('/embed/')) {
-      url = url.replace('/reporting/', '/embed/reporting/');
-    }
+    // Clean up — make sure it's a regular URL (not embed)
+    url = url.replace('/embed/reporting/', '/reporting/');
 
-    localStorage.setItem(KEY_URL, url);
-    loadDashboard(url);
+    localStorage.setItem(K_URL, url);
+    toast('Dashboard saved ✓');
+    go('home');
   }
 
-  // ===== LOAD DASHBOARD =====
-  function loadDashboard(url) {
-    showScreen('dashboard');
-    // Set iframe with storage access
-    $iframe.src = url;
+  // ===== DASHBOARD =====
+  function openDashboard() {
+    const url = localStorage.getItem(K_URL);
+    if (!url) { toast('No URL saved'); return; }
+    // Direct navigation — no iframe, no cookies issues
+    window.location.href = url;
+  }
 
-    // Request storage access for third-party cookies (modern browsers)
-    if (document.hasStorageAccess) {
-      document.hasStorageAccess().then(hasAccess => {
-        if (!hasAccess && document.requestStorageAccess) {
-          document.requestStorageAccess().catch(() => {});
-        }
-      });
+  function shareDashboard() {
+    const url = localStorage.getItem(K_URL);
+    if (!url) { toast('No URL saved'); return; }
+    if (navigator.share) {
+      navigator.share({ title: 'Finance Dashboard', url });
+    } else {
+      navigator.clipboard.writeText(url).then(() => toast('Link copied!'));
     }
   }
 
-  // ===== SETTINGS =====
-  function openSettings() {
-    document.getElementById('settings-overlay').classList.add('show');
-  }
-  function closeSettings() {
-    document.getElementById('settings-overlay').classList.remove('show');
-  }
-
-  function refreshDashboard() {
-    const url = localStorage.getItem(KEY_URL);
-    if (url) {
-      const sep = url.includes('?') ? '&' : '?';
-      $iframe.src = url + sep + '_t=' + Date.now();
+  function resetApp() {
+    if (confirm('Reset the app? You will need to sign in and paste the URL again.')) {
+      localStorage.removeItem(K_AUTH);
+      localStorage.removeItem(K_URL);
+      go('login');
+      toast('App reset');
     }
-    closeSettings();
   }
 
-  function changeUrl() {
-    closeSettings();
-    showScreen('url');
-    const saved = localStorage.getItem(KEY_URL);
-    if (saved) document.getElementById('url-input').value = saved;
-  }
-
-  function signOut() {
-    localStorage.removeItem(KEY_SIGNED_IN);
-    localStorage.removeItem(KEY_URL);
-    $iframe.src = '';
-    closeSettings();
-    showScreen('login');
+  // ===== TOAST =====
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
   }
 
   // ===== PWA INSTALL =====
   let deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', (e) => {
+  window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     deferredPrompt = e;
-    setTimeout(() => document.getElementById('install-banner').classList.add('show'), 3000);
+    setTimeout(() => $('install-banner').classList.add('show'), 3000);
   });
   function installApp() {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then(() => {
         deferredPrompt = null;
-        document.getElementById('install-banner').classList.remove('show');
+        $('install-banner').classList.remove('show');
       });
     }
   }
-  function dismissInstall() { document.getElementById('install-banner').classList.remove('show'); }
+  function dismissInstall() { $('install-banner').classList.remove('show'); }
 
   // iOS
-  const isIos = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-  if (isIos && !isStandalone) {
-    setTimeout(() => document.getElementById('ios-guide').classList.add('show'), 4000);
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches) {
+    setTimeout(() => $('ios-guide').classList.add('show'), 4000);
   }
-  function closeIosGuide() { document.getElementById('ios-guide').classList.remove('show'); }
+  function closeIosGuide() { $('ios-guide').classList.remove('show'); }
 
   // Service Worker
   if ('serviceWorker' in navigator) {
     const sw = `self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>{e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});`;
-    navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw], {type:'application/javascript'}))).catch(()=>{});
+    navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:'application/javascript'}))).catch(()=>{});
   }
 </script>
 </body>
