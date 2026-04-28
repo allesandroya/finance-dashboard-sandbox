@@ -1,0 +1,16 @@
+{
+  "name": "inputIn - Smart Money Manager",
+  "short_name": "inputIn",
+  "description": "Catat keuangan semudah chat. Pencatat pemasukan & pengeluaran otomatis dengan AI.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0f3b32",
+  "lang": "id",
+  "icons": [
+    { "src": "assets/inputin-icon.png", "sizes": "625x625", "type": "image/png", "purpose": "any" },
+    { "src": "assets/inputin-icon.png", "sizes": "any",     "type": "image/png", "purpose": "maskable" }
+  ]
+}
