@@ -805,9 +805,25 @@
        visuals are disabled in this mode so the focus is purely on reordering. */
     .ds-acct-grid.is-edit-mode .acct-card { cursor: grab; touch-action: none; }
     .ds-acct-grid.is-edit-mode .acct-card:active { cursor: grabbing; }
-    .ds-acct-grid.is-edit-mode .acct-card:hover { transform: translateY(-1px); }
     .acct-card.is-edit { padding-left: 30px; border-color: var(--border-strong); }
     .acct-card.is-edit::after { display: none !important; } /* no contribution bar in edit */
+    /* iOS-Springboard-style jiggle so user knows edit mode is on. Even/odd
+       cards alternate phase so the row looks "alive" without being chaotic. */
+    @keyframes acct-edit-wobble {
+      0%, 100% { transform: rotate(-0.55deg); }
+      50%      { transform: rotate(0.55deg); }
+    }
+    .ds-acct-grid.is-edit-mode .acct-card:not(.is-dragging) {
+      animation: acct-edit-wobble 0.9s ease-in-out infinite;
+      transform-origin: 50% 50%;
+      will-change: transform;
+    }
+    .ds-acct-grid.is-edit-mode .acct-card:nth-child(even):not(.is-dragging) {
+      animation-delay: -0.45s;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ds-acct-grid.is-edit-mode .acct-card:not(.is-dragging) { animation: none; }
+    }
     /* Six-dot drag handle anchored to the left edge of the card. Indicates
        the whole card is draggable; the actual drag is bound at grid level. */
     .acct-drag-handle {
@@ -817,14 +833,23 @@
       color: var(--text-tertiary); pointer-events: none; z-index: 2;
     }
     .acct-drag-handle svg { display: block; }
-    /* Visual lift while a card is being dragged. */
+    /* Lift the actively dragged card without breaking the wobble of the rest. */
     .acct-card.is-dragging {
-      z-index: 10; opacity: 0.94;
-      box-shadow: 0 14px 32px rgba(15,23,42,0.18), 0 4px 8px rgba(15,23,42,0.10);
+      z-index: 1000; opacity: 0.94;
+      box-shadow: 0 18px 38px rgba(15,23,42,0.22), 0 6px 12px rgba(15,23,42,0.12);
       cursor: grabbing;
+      animation: none !important;
+      transform: scale(1.04) !important;
     }
-    .ds-acct-grid[data-drag-mode="1"] .acct-card:not(.is-dragging) { transition: transform 200ms ease; }
-    .ds-acct-grid[data-drag-mode="1"] { cursor: grabbing; }
+    /* Placeholder occupies the dragged card's old slot so the grid doesn't
+       collapse + reflow each time the placeholder is moved between siblings. */
+    .acct-drag-placeholder {
+      background: rgba(22, 163, 74, 0.06);
+      border: 2px dashed rgba(22, 163, 74, 0.35);
+      border-radius: 10px;
+      transition: transform 180ms ease;
+    }
+    .ds-acct-grid[data-drag-mode="1"] .acct-card:not(.is-dragging) { transition: transform 220ms ease; }
     /* Notification settings: per-category toggle rows. Two-column layout —
        label/description on left, switch on right — with subtle row separator. */
     .notif-toggle-row {
@@ -4089,6 +4114,17 @@
            dynamically by JS (chatLayoutSync) based on the composer's measured
            height + nav height — fixed 140px wasn't enough when chips wrap. */
         padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
+        /* scrollIntoView({block:'end'}) on the latest msg lands its bottom
+           at the bottom of the scroll viewport. With scroll-padding-bottom
+           equal to the composer-reserved area, the message stops just above
+           the composer instead of sliding underneath it. */
+        scroll-padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
+      }
+      /* Per-bubble fallback for scroll containers that ignore scroll-padding
+         (older Safari) and for the body/window scroller used on mobile when
+         .chat-layout has height:auto. */
+      #view-chat .chat-messages > .msg {
+        scroll-margin-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
       }
       #view-chat .chat-composer {
         position: fixed;
@@ -9442,6 +9478,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
     // Bind pointer-event drag-and-drop to a single grid. Drag is immediate
     // (no long-press gate) because edit mode is the explicit opt-in. Releases
     // commit the new DOM order to state.settings.accountsOrder.
+    //
+    // Mechanic: on drag start the card is lifted to position:fixed and a
+    // dimensionally-identical placeholder is left in its slot. The card then
+    // tracks the pointer perfectly via top/left, while DOM swaps happen
+    // behind it (we move the placeholder, not the card). This eliminates the
+    // "auto-snap before reaching target" jitter from the previous translate-
+    // based approach where rect math broke after every reorder.
     function attachEditDrag(grid) {
       if (!grid || grid.dataset.editDragWired === '1') return;
       grid.dataset.editDragWired = '1';
@@ -9454,7 +9497,26 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
         e.preventDefault();
         const pointerId = e.pointerId;
-        let originX = e.clientX, originY = e.clientY;
+        const cardRect = card.getBoundingClientRect();
+        const offsetX = e.clientX - cardRect.left;
+        const offsetY = e.clientY - cardRect.top;
+
+        // Placeholder keeps the grid layout stable while the card is lifted.
+        const placeholder = document.createElement('div');
+        placeholder.className = 'acct-drag-placeholder';
+        placeholder.style.width  = cardRect.width + 'px';
+        placeholder.style.height = cardRect.height + 'px';
+        card.parentNode.insertBefore(placeholder, card);
+
+        // Lift card out of flow so swap re-flows don't fight the pointer.
+        card.style.position = 'fixed';
+        card.style.left   = (e.clientX - offsetX) + 'px';
+        card.style.top    = (e.clientY - offsetY) + 'px';
+        card.style.width  = cardRect.width  + 'px';
+        card.style.height = cardRect.height + 'px';
+        card.style.margin = '0';
+        card.style.zIndex = '1000';
+        card.style.pointerEvents = 'none';
         card.classList.add('is-dragging');
         grid.dataset.dragMode = '1';
         try { card.setPointerCapture(pointerId); } catch {}
@@ -9462,21 +9524,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
         function onMove(ev) {
           if (ev.pointerId !== pointerId) return;
           ev.preventDefault();
-          const dx = ev.clientX - originX, dy = ev.clientY - originY;
-          card.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`;
+          card.style.left = (ev.clientX - offsetX) + 'px';
+          card.style.top  = (ev.clientY - offsetY) + 'px';
 
-          const cx = ev.clientX, cy = ev.clientY;
-          const siblings = Array.from(grid.querySelectorAll('.acct-card[data-f-value]:not(.is-dragging)'));
-          for (const sib of siblings) {
-            const r = sib.getBoundingClientRect();
-            if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
-              const before = (cy - r.top) < r.height / 2;
-              if (before) grid.insertBefore(card, sib);
-              else        grid.insertBefore(card, sib.nextSibling);
-              originX = ev.clientX; originY = ev.clientY;
-              card.style.transform = 'scale(1.04)';
-              break;
-            }
+          // elementFromPoint ignores the dragged card (pointerEvents:none)
+          // so we get the underlying card directly. Move the placeholder to
+          // its position relative to that card; on drag end we'll rejoin
+          // the card to where the placeholder ended up.
+          const target = document.elementFromPoint(ev.clientX, ev.clientY);
+          const sibling = target && target.closest && target.closest('.acct-card[data-f-value]');
+          if (sibling && sibling !== card && grid.contains(sibling)) {
+            const r = sibling.getBoundingClientRect();
+            const before = (ev.clientY - r.top) < r.height / 2;
+            if (before) sibling.parentNode.insertBefore(placeholder, sibling);
+            else        sibling.parentNode.insertBefore(placeholder, sibling.nextSibling);
           }
         }
         function onEnd(ev) {
@@ -9485,12 +9546,25 @@ Use the user input carefully, but keep the output minimal and structured. Return
           window.removeEventListener('pointerup', onEnd);
           window.removeEventListener('pointercancel', onEnd);
 
+          // Rejoin the card to the placeholder's slot.
+          if (placeholder.parentNode) {
+            placeholder.parentNode.insertBefore(card, placeholder);
+            placeholder.remove();
+          }
+          // Restore inline styles set during drag.
           card.classList.remove('is-dragging');
-          card.style.transform = '';
+          card.style.position = '';
+          card.style.left = '';
+          card.style.top = '';
+          card.style.width = '';
+          card.style.height = '';
+          card.style.margin = '';
+          card.style.zIndex = '';
+          card.style.pointerEvents = '';
           delete grid.dataset.dragMode;
 
-          // Persist using DOM order of THIS grid. The other grid (mirror) is
-          // re-rendered from state on the next renderAccountsBalanceCards.
+          // Persist using DOM order of THIS grid. The mirror is re-rendered
+          // from state on the next renderAccountsBalanceCards call.
           const order = Array.from(grid.querySelectorAll('.acct-card[data-f-value]')).map((c) => c.dataset.fValue);
           state.settings = state.settings || {};
           state.settings.accountsOrder = order;
@@ -10345,15 +10419,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Prune ids that no longer exist (e.g. typing indicator removed)
       renderedChatIds.forEach((id) => { if (!seen.has(id)) renderedChatIds.delete(id); });
       seen.forEach((id) => renderedChatIds.add(id));
-      // Auto-scroll to the latest message. Two passes:
-      // 1) container.scrollTop — works on desktop where .chat-messages has
-      //    overflow-y:auto; cheap, no scroll-anchor jitter.
-      // 2) lastChild.scrollIntoView — fallback for mobile where the layout
-      //    has height:auto so the body/window is what actually scrolls.
+      // Auto-scroll to the latest message. We use scrollIntoView({block:'end'})
+      // and rely on scroll-padding-bottom on .chat-messages + scroll-margin-
+      // bottom on each .msg (CSS) to keep the bubble above the floating
+      // composer. Two RAFs so the browser computes layout AFTER applying the
+      // updated --chat-bottom-pad from chatLayoutSync — without that delay,
+      // bot replies sometimes land BEHIND the composer because scroll fired
+      // with the OLD reserved padding.
       requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-        const last = el.lastElementChild;
-        if (last) last.scrollIntoView({ block: 'end', inline: 'nearest' });
+        try { chatLayoutSync(); } catch {}
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight;
+          const last = el.lastElementChild;
+          if (last) last.scrollIntoView({ block: 'end', inline: 'nearest' });
+        });
       });
       renderChatChips();
       // Update the pending-transaction badge on the chat nav (mobile + desktop).
