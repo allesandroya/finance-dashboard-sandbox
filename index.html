@@ -10375,10 +10375,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
         }
       }
       composer.style.setProperty('--chat-composer-bottom', composerBottom);
-      // 2) Padding under messages so the latest bubble can scroll above the
-      //    composer + nav. composer.offsetHeight + 84px nav + 16px breathing.
-      const composerH = composer.offsetHeight || 120;
-      const reserved = composerH + 96; // nav + safe gap
+      // 2) Compute reserved space from composer's TOP to viewport bottom +
+      //    buffer. Using getBoundingClientRect handles iPhone safe-area-
+      //    inset-bottom + custom positioning automatically; the previous
+      //    formula (offsetHeight + 96) under-counted by 30+px on iOS so the
+      //    last bubble's bottom slipped under the composer when scrolled
+      //    via scrollIntoView({block:'end'}).
+      const composerRect = composer.getBoundingClientRect();
+      const viewportH = window.innerHeight;
+      // Space below composer's top edge, with breathing room.
+      const reserved = Math.max(180, Math.round(viewportH - composerRect.top + 24));
       messages.style.setProperty('--chat-bottom-pad', reserved + 'px');
     }
     function chatLayoutSyncWire() {
