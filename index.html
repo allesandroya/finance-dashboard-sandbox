@@ -800,28 +800,31 @@
     }
     .ds-acct-edit-btn.is-active:hover { filter: brightness(1.05); }
 
-    /* Edit mode: card highlight + per-card arrows. Filter / cross-filter
-       visuals are disabled (no contribution bar dim, no selection ring) so
-       the user can focus purely on rearranging. */
-    .ds-acct-grid.is-edit-mode .acct-card { cursor: default; }
-    .ds-acct-grid.is-edit-mode .acct-card:hover { transform: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); }
-    .acct-card.is-edit { padding-right: 60px; border-color: var(--border-strong); background: var(--bg-elev, rgba(15,23,42,0.02)); }
+    /* Edit mode: cards become directly draggable (no long-press) since the
+       user has explicitly opted in via the Edit button. Filter / cross-filter
+       visuals are disabled in this mode so the focus is purely on reordering. */
+    .ds-acct-grid.is-edit-mode .acct-card { cursor: grab; touch-action: none; }
+    .ds-acct-grid.is-edit-mode .acct-card:active { cursor: grabbing; }
+    .ds-acct-grid.is-edit-mode .acct-card:hover { transform: translateY(-1px); }
+    .acct-card.is-edit { padding-left: 30px; border-color: var(--border-strong); }
     .acct-card.is-edit::after { display: none !important; } /* no contribution bar in edit */
-    .acct-move-controls {
-      position: absolute; right: 6px; top: 6px; bottom: 6px;
-      display: flex; flex-direction: column; gap: 4px;
-      z-index: 2;
-    }
-    .acct-move-btn {
+    /* Six-dot drag handle anchored to the left edge of the card. Indicates
+       the whole card is draggable; the actual drag is bound at grid level. */
+    .acct-drag-handle {
+      position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+      width: 18px; height: 24px;
       display: inline-flex; align-items: center; justify-content: center;
-      flex: 1; min-height: 28px; min-width: 32px;
-      background: var(--bg-card, #fff); border: 1px solid var(--border);
-      border-radius: 7px; color: var(--text-secondary); cursor: pointer;
-      transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+      color: var(--text-tertiary); pointer-events: none; z-index: 2;
     }
-    .acct-move-btn:hover:not([disabled]) { background: var(--accent, #16A34A); color: #fff; border-color: var(--accent, #16A34A); }
-    .acct-move-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
-    .acct-move-btn svg { display: block; }
+    .acct-drag-handle svg { display: block; }
+    /* Visual lift while a card is being dragged. */
+    .acct-card.is-dragging {
+      z-index: 10; opacity: 0.94;
+      box-shadow: 0 14px 32px rgba(15,23,42,0.18), 0 4px 8px rgba(15,23,42,0.10);
+      cursor: grabbing;
+    }
+    .ds-acct-grid[data-drag-mode="1"] .acct-card:not(.is-dragging) { transition: transform 200ms ease; }
+    .ds-acct-grid[data-drag-mode="1"] { cursor: grabbing; }
     /* Notification settings: per-category toggle rows. Two-column layout —
        label/description on left, switch on right — with subtle row separator. */
     .notif-toggle-row {
@@ -4082,15 +4085,19 @@
         grid-template-rows: 1fr; /* composer is out of flow via fixed */
       }
       #view-chat .chat-messages {
-        /* Leave room at the bottom so the last bubble isn't swallowed by
-           the fixed composer + floating nav. */
-        padding-bottom: calc(140px + env(safe-area-inset-bottom));
+        /* Reserve space for composer + nav. The actual reserved px is set
+           dynamically by JS (chatLayoutSync) based on the composer's measured
+           height + nav height — fixed 140px wasn't enough when chips wrap. */
+        padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
       }
       #view-chat .chat-composer {
         position: fixed;
         left: 10px; right: 10px;
-        bottom: calc(84px + env(safe-area-inset-bottom));
-        z-index: 46; /* above .mobile-nav (z:45) so it never hides behind it */
+        /* Default position: above the floating mobile nav. JS overrides
+           `bottom` when iOS keyboard opens (visualViewport resize) so the
+           composer follows the keyboard instead of floating mid-screen. */
+        bottom: var(--chat-composer-bottom, calc(84px + env(safe-area-inset-bottom)));
+        z-index: 46;
         background: var(--bg-primary);
         border: 1px solid var(--border);
         border-radius: 22px;
@@ -9351,21 +9358,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
               const isSel = !editMode && cfActive && cf0.value === r.name;
               const isDim = !editMode && cfActive && !isSel;
               const cls = ['acct-card', isSel ? 'is-selected' : '', isDim ? 'is-dim' : '', editMode ? 'is-edit' : ''].filter(Boolean).join(' ');
-              const moveButtons = editMode ? `
-                <div class="acct-move-controls">
-                  <button type="button" class="acct-move-btn" data-action="move-account" data-dir="up" data-name="${escapeAttr(r.name)}" ${idx === 0 ? 'disabled' : ''} title="Pindah naik" aria-label="Pindah ${escapeAttr(r.name)} naik">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-                  </button>
-                  <button type="button" class="acct-move-btn" data-action="move-account" data-dir="down" data-name="${escapeAttr(r.name)}" ${idx === regular.length - 1 ? 'disabled' : ''} title="Pindah turun" aria-label="Pindah ${escapeAttr(r.name)} turun">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
-                </div>` : '';
+              // In edit mode each card carries a small drag handle (visual hint
+              // only — the entire card is draggable via attachEditDrag below).
+              const dragHandle = editMode ? `
+                <span class="acct-drag-handle" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="15" cy="18" r="1.2"/></svg>
+                </span>` : '';
+              // In edit mode we always expose data-f-value so the drag handler
+              // can identify the card; click-to-filter is suppressed by JS gate.
               const cardAttrs = editMode
-                ? `tabindex="-1"`
+                ? `data-f-value="${escapeAttr(r.name)}" tabindex="-1"`
                 : `data-f-field="Account" data-f-value="${escapeAttr(r.name)}" role="button" tabindex="0"`;
               return `
                 <div class="${cls}" style="--acct-color:${color}; --contrib-pct:${pct};" ${cardAttrs}>
-                  ${moveButtons}
+                  ${dragHandle}
                   <div class="acct-top">
                     <span class="acct-ico">${icon}</span>
                     <span class="acct-type">${escapeHtml(label)}</span>
@@ -9417,36 +9423,86 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const mG = document.getElementById('dsGoalsGroupM');
       if (mA) mA.innerHTML = accountsGroup.innerHTML;
       if (mG) mG.innerHTML = goalsGroup.innerHTML;
+
+      // Wire drag-and-drop for any grid currently in edit mode (desktop +
+      // mobile mirror). Listeners are bound per-render so they live and die
+      // with the elements — no manual cleanup. Outside edit mode the handler
+      // is a no-op.
+      if (editMode) {
+        document.querySelectorAll('.ds-acct-grid.is-edit-mode').forEach(attachEditDrag);
+      }
     }
-    // Edit mode for Accounts Balance: replaces the long-press drag-reorder
-    // (which conflicted with text selection / scroll on iOS Safari). Edit mode
-    // adds explicit ↑/↓ buttons per card; tap-to-filter is suppressed while
-    // edit mode is active. Click "Selesai" to exit. Same persistence target
-    // as before: state.settings.accountsOrder.
+    // Edit mode for Accounts Balance: explicit Edit button toggles a reorder
+    // mode where cards are immediately draggable (no long-press). Tap-to-filter
+    // is suppressed while active, the Sort button hides, and a drag-handle
+    // dot grid appears at the top-left of each card so the affordance is
+    // unmistakable. Persists to state.settings.accountsOrder.
     let _acctEditMode = false;
 
-    // Move one account up/down in the user-defined order. Used by edit-mode
-    // arrow buttons. Persists to state.settings.accountsOrder so the new
-    // order survives reload + sync, then re-renders the dashboard cards.
-    function moveAccount(name, dir) {
-      const catalog = getAccountCatalog();
-      const baseOrder = (state.settings && Array.isArray(state.settings.accountsOrder) && state.settings.accountsOrder.length)
-        ? state.settings.accountsOrder.slice()
-        : catalog.filter((a) => a.type !== 'goal').map((a) => a.name);
-      // Make sure all current accounts are present in the order list.
-      for (const a of catalog) {
-        if (a.type !== 'goal' && !baseOrder.includes(a.name)) baseOrder.push(a.name);
-      }
-      const i = baseOrder.indexOf(name);
-      if (i < 0) return;
-      const j = dir === 'up' ? i - 1 : i + 1;
-      if (j < 0 || j >= baseOrder.length) return;
-      [baseOrder[i], baseOrder[j]] = [baseOrder[j], baseOrder[i]];
-      state.settings = state.settings || {};
-      state.settings.accountsOrder = baseOrder;
-      try { saveState(); } catch {}
-      try { renderAccountsBalanceCards(); } catch {}
+    // Bind pointer-event drag-and-drop to a single grid. Drag is immediate
+    // (no long-press gate) because edit mode is the explicit opt-in. Releases
+    // commit the new DOM order to state.settings.accountsOrder.
+    function attachEditDrag(grid) {
+      if (!grid || grid.dataset.editDragWired === '1') return;
+      grid.dataset.editDragWired = '1';
+
+      grid.addEventListener('pointerdown', (e) => {
+        if (!_acctEditMode) return;
+        if (e.button !== undefined && e.button !== 0) return;
+        const card = e.target.closest && e.target.closest('.acct-card[data-f-value]');
+        if (!card || !grid.contains(card)) return;
+
+        e.preventDefault();
+        const pointerId = e.pointerId;
+        let originX = e.clientX, originY = e.clientY;
+        card.classList.add('is-dragging');
+        grid.dataset.dragMode = '1';
+        try { card.setPointerCapture(pointerId); } catch {}
+
+        function onMove(ev) {
+          if (ev.pointerId !== pointerId) return;
+          ev.preventDefault();
+          const dx = ev.clientX - originX, dy = ev.clientY - originY;
+          card.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`;
+
+          const cx = ev.clientX, cy = ev.clientY;
+          const siblings = Array.from(grid.querySelectorAll('.acct-card[data-f-value]:not(.is-dragging)'));
+          for (const sib of siblings) {
+            const r = sib.getBoundingClientRect();
+            if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+              const before = (cy - r.top) < r.height / 2;
+              if (before) grid.insertBefore(card, sib);
+              else        grid.insertBefore(card, sib.nextSibling);
+              originX = ev.clientX; originY = ev.clientY;
+              card.style.transform = 'scale(1.04)';
+              break;
+            }
+          }
+        }
+        function onEnd(ev) {
+          if (ev.pointerId !== pointerId) return;
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onEnd);
+          window.removeEventListener('pointercancel', onEnd);
+
+          card.classList.remove('is-dragging');
+          card.style.transform = '';
+          delete grid.dataset.dragMode;
+
+          // Persist using DOM order of THIS grid. The other grid (mirror) is
+          // re-rendered from state on the next renderAccountsBalanceCards.
+          const order = Array.from(grid.querySelectorAll('.acct-card[data-f-value]')).map((c) => c.dataset.fValue);
+          state.settings = state.settings || {};
+          state.settings.accountsOrder = order;
+          try { saveState(); } catch {}
+          try { renderAccountsBalanceCards(); } catch {}
+        }
+        window.addEventListener('pointermove', onMove, { passive: false });
+        window.addEventListener('pointerup', onEnd);
+        window.addEventListener('pointercancel', onEnd);
+      });
     }
+
 
     // Phase 7.1 - Budget Health scorecards. Reuses the Accounts Balance
     // scorecard shell (white card + accent strip + meter) but swaps the color
@@ -10219,6 +10275,51 @@ Use the user input carefully, but keep the output minimal and structured. Return
       try { armPendingChatReminder(n); } catch {}
     }
 
+    // ============ CHAT LAYOUT SYNC (iOS keyboard + dynamic padding) ============
+    // Two problems this fixes:
+    // 1) iOS Safari keeps `position: fixed` anchored to the LAYOUT viewport,
+    //    not the visual viewport — so when the keyboard slides up, the
+    //    composer floats in the middle of the chat. We use VisualViewport API
+    //    to detect the keyboard offset and reposition the composer above it.
+    // 2) Composer height varies with chip count + attached files. A static
+    //    `padding-bottom: 140px` on .chat-messages can leave the last bubble
+    //    overlapped by tall composers. Measure actual composer height each
+    //    layout tick and set --chat-bottom-pad accordingly.
+    function chatLayoutSync() {
+      const composer = document.querySelector('#view-chat .chat-composer');
+      const messages = document.querySelector('#view-chat .chat-messages');
+      if (!composer || !messages) return;
+      // 1) Composer position relative to the VISUAL viewport (keyboard-aware).
+      let composerBottom = '';
+      const vv = window.visualViewport;
+      if (vv) {
+        // keyboardOverlay = how many CSS px the keyboard hides at the bottom.
+        // On iOS Safari this is innerHeight - vv.height (when vv shrinks).
+        const keyboardOverlay = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        if (keyboardOverlay > 50) {
+          composerBottom = (keyboardOverlay + 8) + 'px';
+        }
+      }
+      composer.style.setProperty('--chat-composer-bottom', composerBottom);
+      // 2) Padding under messages so the latest bubble can scroll above the
+      //    composer + nav. composer.offsetHeight + 84px nav + 16px breathing.
+      const composerH = composer.offsetHeight || 120;
+      const reserved = composerH + 96; // nav + safe gap
+      messages.style.setProperty('--chat-bottom-pad', reserved + 'px');
+    }
+    function chatLayoutSyncWire() {
+      if (chatLayoutSyncWire._wired) return;
+      chatLayoutSyncWire._wired = true;
+      const trigger = () => { try { chatLayoutSync(); } catch {} };
+      window.addEventListener('resize', trigger);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', trigger);
+        window.visualViewport.addEventListener('scroll', trigger);
+      }
+      // Run after font/layout settles.
+      setTimeout(trigger, 100);
+    }
+
     function renderChat() {
       // Auth gate: anonymous users see the lock card. The worker also rejects
       // unauth'd /api/ai/parse calls, so this is just UI hint, not security.
@@ -10257,6 +10358,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
       renderChatChips();
       // Update the pending-transaction badge on the chat nav (mobile + desktop).
       try { updateChatPendingBadge(); } catch {}
+      // Recalculate composer position + reserved bottom padding now that the
+      // chip row + composer height could have changed.
+      try { chatLayoutSync(); } catch {}
     }
 
     function renderChatChips() {
@@ -13209,14 +13313,6 @@ Use the user input carefully, but keep the output minimal and structured. Return
         try { renderAccountsBalanceCards(); } catch {}
         if (!_acctEditMode) try { toast('Posisi disimpan ✓', 'success'); } catch {}
       });
-      // ↑ / ↓ buttons inside cards (edit mode only).
-      document.addEventListener('click', (e) => {
-        const btn = e.target.closest && e.target.closest('[data-action="move-account"]');
-        if (!btn || btn.disabled) return;
-        e.preventDefault();
-        e.stopPropagation();
-        moveAccount(btn.dataset.name, btn.dataset.dir === 'up' ? 'up' : 'down');
-      });
       // Keyboard a11y: Enter/Space on a focused account card triggers the same filter.
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -15742,6 +15838,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       _wirePwaInstall();
       _wireNotifSettings();
       _registerServiceWorker();
+      chatLayoutSyncWire();
       // Show current pending-chat count on the nav badge as soon as state loads.
       try { updateChatPendingBadge(); } catch {}
 
