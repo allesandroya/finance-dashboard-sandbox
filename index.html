@@ -21,6 +21,59 @@
   <link rel="manifest" href="manifest.webmanifest" />
 
   <style>
+    /* Splash screen — early styles so it paints before the main stylesheet
+       loads. Shown only on PWA standalone launches (display-mode: standalone)
+       AND while body lacks .app-ready. JS adds .app-ready after boot. */
+    .app-splash {
+      position: fixed; inset: 0; z-index: 9999;
+      display: none;
+      align-items: center; justify-content: center;
+      background: linear-gradient(165deg, #F0FAF4 0%, #E1F1E8 60%, #FFFFFF 100%);
+      transition: opacity 320ms ease;
+    }
+    @media (display-mode: standalone), (display-mode: fullscreen) {
+      body:not(.app-ready) .app-splash { display: flex; opacity: 1; }
+    }
+    body.app-splash-hide .app-splash { opacity: 0; pointer-events: none; }
+    .app-splash-card { text-align: center; padding: 32px; }
+    .app-splash-logo {
+      width: 96px; height: 96px;
+      margin: 0 auto 18px;
+      border-radius: 24px; overflow: hidden;
+      box-shadow: 0 12px 32px rgba(15,23,42,0.18), 0 3px 8px rgba(15,23,42,0.06);
+      animation: splash-pop 480ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .app-splash-logo img { width: 100%; height: 100%; display: block; }
+    .app-splash-name {
+      font-family: 'Poppins', 'DM Sans', -apple-system, sans-serif;
+      font-size: 28px; font-weight: 700;
+      color: #0F172A; letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+    .app-splash-tagline {
+      font-size: 13px; color: #64748B; font-weight: 500;
+      letter-spacing: 0.2px;
+      margin-bottom: 28px;
+    }
+    .app-splash-loader { display: inline-flex; gap: 6px; }
+    .app-splash-loader span {
+      width: 8px; height: 8px; border-radius: 999px;
+      background: #16A34A; opacity: 0.4;
+      animation: splash-dot 1.0s ease-in-out infinite;
+    }
+    .app-splash-loader span:nth-child(2) { animation-delay: 0.15s; }
+    .app-splash-loader span:nth-child(3) { animation-delay: 0.30s; }
+    @keyframes splash-pop {
+      from { transform: scale(0.6); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+    @keyframes splash-dot {
+      0%,100% { opacity: 0.4; transform: translateY(0); }
+      50%     { opacity: 1;   transform: translateY(-4px); }
+    }
+  </style>
+
+  <style>
     /* ====== Figma-aligned LIGHT theme (default) ====== */
     :root {
       --bg-primary: #F8FAFC;        /* page bg - Neutral/50 */
@@ -765,6 +818,19 @@
       background: var(--bg-elev); color: var(--text-tertiary); border-radius: 999px;
     }
     .notif-toggle-row.notif-toggle-soon { opacity: 0.6; }
+    /* Time-picker subrow under daily/weekly toggles. Indented under the
+       parent row, hidden when the parent toggle is off. */
+    .notif-time-row {
+      display: none;
+      align-items: center; justify-content: space-between;
+      gap: 12px; padding: 4px 0 10px 30px;
+      margin-top: -6px;
+    }
+    .notif-time-row.is-shown { display: flex; }
+    .notif-time-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+    .notif-time-input { font-size: 13px; padding: 6px 10px; max-width: 110px; }
+    .notif-time-pair { display: inline-flex; gap: 6px; }
+    .notif-time-pair .notif-time-input { max-width: 100px; }
 
     /* Empty-state prompt used by Accounts Balance + Budget cards when the
        user hasn't set anything up yet. Centered, friendly, optional CTA. */
@@ -4407,7 +4473,22 @@
   </style>
 </head>
 <body>
-
+  <!-- PWA splash overlay. Shown only when launched as a standalone app (home
+       screen / Add to Home Screen). Native browser tabs see no splash. JS
+       removes the .visible class after the first dashboard render so the
+       app feels instant. CSS-only fade if JS hangs. -->
+  <div id="appSplash" class="app-splash" aria-hidden="true">
+    <div class="app-splash-card">
+      <div class="app-splash-logo">
+        <img src="assets/inputin-icon.png" alt="inputIn" />
+      </div>
+      <div class="app-splash-name">inputIn</div>
+      <div class="app-splash-tagline">Smart Money Manager</div>
+      <div class="app-splash-loader" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
 
   <!-- LOGIN GATE - magic-link email flow (Phase 8.1) -->
   <div id="login" class="login hidden">
@@ -5497,21 +5578,40 @@
                       <span class="notif-toggle-emoji">☀️</span>
                       <span>
                         <span class="notif-toggle-title">Daily reminder</span>
-                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" tiap jam 21:00 WIB. (Perlu login untuk subscribe.)</span>
+                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" Jadwal disesuaikan timezone-mu.</span>
                       </span>
                     </span>
                     <span class="switch"><input type="checkbox" data-notif-cat="daily" data-server-push /><span class="slider"></span></span>
                   </label>
+                  <div class="notif-time-row" id="notifDailyTimeRow">
+                    <label class="notif-time-label">Jam pengingat</label>
+                    <input type="time" id="notifDailyTime" class="input notif-time-input" value="21:00" />
+                  </div>
                   <label class="notif-toggle-row">
                     <span class="notif-toggle-info">
                       <span class="notif-toggle-emoji">📊</span>
                       <span>
                         <span class="notif-toggle-title">Weekly summary</span>
-                        <span class="notif-toggle-hint">Ringkasan keuangan tiap Senin 08:00 WIB (income, expense, net). Perlu login untuk subscribe.</span>
+                        <span class="notif-toggle-hint">Ringkasan keuangan: income, expense, net 7 hari terakhir.</span>
                       </span>
                     </span>
                     <span class="switch"><input type="checkbox" data-notif-cat="weekly" data-server-push /><span class="slider"></span></span>
                   </label>
+                  <div class="notif-time-row" id="notifWeeklyTimeRow">
+                    <label class="notif-time-label">Hari & jam</label>
+                    <div class="notif-time-pair">
+                      <select class="select notif-time-input" id="notifWeeklyDay">
+                        <option value="Mon">Senin</option>
+                        <option value="Tue">Selasa</option>
+                        <option value="Wed">Rabu</option>
+                        <option value="Thu">Kamis</option>
+                        <option value="Fri">Jumat</option>
+                        <option value="Sat">Sabtu</option>
+                        <option value="Sun">Minggu</option>
+                      </select>
+                      <input type="time" id="notifWeeklyTime" class="input notif-time-input" value="08:00" />
+                    </div>
+                  </div>
                 </div>
                 <div class="hint" id="notifPermHint" style="margin-top:10px;"></div>
               </div>
@@ -5765,6 +5865,11 @@
           pendingChat: true,
           daily: false,
           weekly: false,
+          // Per-user delivery time. Worker cron runs every hour and only
+          // fires when current time-in-user-tz matches these.
+          dailyTime: '21:00',     // HH:MM, 24h, in user's timezone
+          weeklyDay: 'Mon',       // Mon|Tue|Wed|Thu|Fri|Sat|Sun
+          weeklyTime: '08:00',
         },
       },
       // Opening-balance accounts. Counted as a one-time additive baseline for
@@ -12020,6 +12125,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
       return sub;
     }
+    // Stable per-device hash from the push endpoint URL — used by the worker
+    // as a KV suffix so different browsers / phones for the same user each
+    // get their own subscription record (not overwritten by the latest one).
+    async function _endpointHash(endpoint) {
+      const buf = new TextEncoder().encode(endpoint);
+      const hash = await crypto.subtle.digest('SHA-256', buf);
+      const bytes = new Uint8Array(hash).slice(0, 8);
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
     async function pushSyncSubscription() {
       // No-op if user is anonymous (server can't bind subscription to a userId
       // without a session token) or if both server-push prefs are off.
@@ -12032,22 +12146,37 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!token) return { ok: false, reason: 'no-session' };
 
       try {
+        // We always need the subscription endpoint to identify THIS device
+        // (so unsubscribe targets just this one, not all of user's devices).
+        const sub = await _getOrCreatePushSubscription();
+        const subJson = sub.toJSON();
+        const deviceId = await _endpointHash(subJson.endpoint);
+
         if (!wantDaily && !wantWeekly) {
-          // Tell server to drop the subscription entirely.
+          // Drop just THIS device's subscription. Other devices stay active.
           await fetch(`${CONFIG.WORKER_URL}/api/push/unsubscribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ deviceId }),
           });
+          // Also drop the local PushSubscription so a future opt-in re-prompts
+          // permission cleanly (avoids stale subscription that worker doesn't know about).
+          try { await sub.unsubscribe(); } catch {}
           return { ok: true, action: 'unsubscribed' };
         }
-        // Otherwise (re-)register.
-        const sub = await _getOrCreatePushSubscription();
-        const json = sub.toJSON();
+
         const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Asia/Jakarta';
+        const prefs = {
+          daily:      wantDaily,
+          weekly:     wantWeekly,
+          dailyTime:  n.dailyTime  || '21:00',
+          weeklyDay:  n.weeklyDay  || 'Mon',
+          weeklyTime: n.weeklyTime || '08:00',
+        };
         const res = await fetch(`${CONFIG.WORKER_URL}/api/push/subscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ subscription: json, prefs: { daily: wantDaily, weekly: wantWeekly }, tz }),
+          body: JSON.stringify({ subscription: subJson, prefs, tz, deviceId, deviceLabel: deviceLabel() }),
         });
         if (!res.ok) throw new Error(`subscribe failed: ${res.status}`);
         return { ok: true, action: 'subscribed' };
@@ -15375,7 +15504,6 @@ Use the user input carefully, but keep the output minimal and structured. Return
         inp.checked = !!n[cat];
         if (serverPush && !linked) {
           inp.disabled = true;
-          // Show a tiny hint right under the row's title.
           const row = inp.closest('.notif-toggle-row');
           if (row) row.classList.add('notif-toggle-soon');
         } else {
@@ -15384,6 +15512,17 @@ Use the user input carefully, but keep the output minimal and structured. Return
           if (row) row.classList.remove('notif-toggle-soon');
         }
       });
+      // Time-picker rows: shown only when the parent toggle is checked.
+      const dailyTimeInput = document.getElementById('notifDailyTime');
+      const dailyRow = document.getElementById('notifDailyTimeRow');
+      if (dailyTimeInput) dailyTimeInput.value = n.dailyTime || '21:00';
+      if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked);
+      const weeklyDaySel = document.getElementById('notifWeeklyDay');
+      const weeklyTimeInput = document.getElementById('notifWeeklyTime');
+      const weeklyRow = document.getElementById('notifWeeklyTimeRow');
+      if (weeklyDaySel) weeklyDaySel.value = n.weeklyDay || 'Mon';
+      if (weeklyTimeInput) weeklyTimeInput.value = n.weeklyTime || '08:00';
+      if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked);
     }
 
     function _wireNotifSettings() {
@@ -15410,8 +15549,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
           if (!state.settings.notif) state.settings.notif = {};
           state.settings.notif[cat] = !!e.target.checked;
           saveState();
+          renderNotifCard(); // toggle the time-row visibility
           if (serverPush) {
-            // Optimistic UI; revert on failure.
             const r = await pushSyncSubscription();
             if (!r.ok) {
               if (r.reason === 'not-logged-in') {
@@ -15419,10 +15558,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
               } else {
                 toast('Gagal sinkronisasi push: ' + (r.error || r.reason || 'unknown'), 'error');
               }
-              // Revert checkbox + state
               e.target.checked = false;
               state.settings.notif[cat] = false;
               saveState();
+              renderNotifCard();
             } else if (r.action === 'subscribed') {
               toast('Notifikasi server aktif ✓', 'success');
             } else if (r.action === 'unsubscribed') {
@@ -15431,6 +15570,27 @@ Use the user input carefully, but keep the output minimal and structured. Return
           }
         });
       });
+      // Time inputs: persist + re-sync subscription so worker has the new schedule.
+      const wireTimeInput = (id, key) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        let pending = null;
+        el.addEventListener('change', async () => {
+          if (!state.settings.notif) state.settings.notif = {};
+          state.settings.notif[key] = el.value;
+          saveState();
+          // Debounce: only the latest change actually re-syncs.
+          if (pending) clearTimeout(pending);
+          pending = setTimeout(async () => {
+            const r = await pushSyncSubscription();
+            if (r.ok && r.action === 'subscribed') toast('Jadwal notifikasi diperbarui ✓', 'success');
+            else if (!r.ok && r.reason !== 'not-logged-in') toast('Gagal update jadwal: ' + (r.error || r.reason), 'error');
+          }, 600);
+        });
+      };
+      wireTimeInput('notifDailyTime',  'dailyTime');
+      wireTimeInput('notifWeeklyTime', 'weeklyTime');
+      wireTimeInput('notifWeeklyDay',  'weeklyDay');
     }
 
     function _wirePwaInstall() {
@@ -15521,11 +15681,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
         state.settings._themeMigrated = true;
         saveState();
       }
-      // Hydrate notif prefs for users from before this feature shipped.
-      if (!state.settings.notif) {
-        state.settings.notif = { master: false, budget: true, goal: true, recurring: true, pendingChat: true, daily: false, weekly: false };
-        saveState();
+      // Hydrate notif prefs (and any new fields added in subsequent versions).
+      // Each missing key defaults independently so older state objects forward-
+      // migrate cleanly without losing already-set toggles.
+      const notifDefaults = {
+        master: false, budget: true, goal: true, recurring: true, pendingChat: true,
+        daily: false, weekly: false,
+        dailyTime: '21:00', weeklyDay: 'Mon', weeklyTime: '08:00',
+      };
+      let notifTouched = false;
+      if (!state.settings.notif) { state.settings.notif = {}; notifTouched = true; }
+      for (const k of Object.keys(notifDefaults)) {
+        if (state.settings.notif[k] === undefined) {
+          state.settings.notif[k] = notifDefaults[k];
+          notifTouched = true;
+        }
       }
+      if (notifTouched) saveState();
       applyTheme(state.settings.theme);
       initEvents();
       wireMobileNavScroll();
@@ -15589,6 +15761,28 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (magicToken) {
         tryConsumeMagicTokenFromUrl(magicToken);
       }
+
+      // Deep-link from a notification: ?view=detail / plans / settings / chat
+      // Routed after showApp so all views are mounted.
+      const deepView = (params.get('view') || '').toLowerCase();
+      const allowedDeepView = new Set(['dashboard','detail','chat','plans','settings']);
+      if (deepView && allowedDeepView.has(deepView)) {
+        try { navigateTo(deepView); } catch {}
+        // Strip the param so a refresh doesn't re-trigger.
+        try { history.replaceState(null, '', location.pathname); } catch {}
+      }
+
+      // Splash dismissal: wait one frame so the dashboard paints, then hide.
+      // The CSS @media (display-mode: standalone) gate ensures browser tabs
+      // never see the splash even before this fires.
+      requestAnimationFrame(() => {
+        document.body.classList.add('app-splash-hide');
+        setTimeout(() => {
+          document.body.classList.add('app-ready');
+          const sp = document.getElementById('appSplash');
+          if (sp) sp.remove();
+        }, 360);
+      });
     }
 
     document.addEventListener('DOMContentLoaded', boot);
