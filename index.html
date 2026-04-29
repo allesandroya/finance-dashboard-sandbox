@@ -15930,27 +15930,32 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // iOS "Cara Install" button: toggle the video guide. First tap injects
       // the video src so the 1.8 MB MP4 only downloads when actually requested
       // (lazy load — non-iOS users + iOS users who don't tap never fetch it).
+      // Track open state explicitly instead of inferring from style.display
+      // (the `display: ''` reset for "open" was confusing the inline-style
+      // comparison and breaking the close path).
       const guideBtn = document.getElementById('btnIosInstallGuide');
       if (guideBtn) {
+        let _iosGuideOpen = false;
         guideBtn.addEventListener('click', () => {
           const guide = document.getElementById('iosInstallGuide');
           const video = document.getElementById('iosInstallVideo');
           if (!guide || !video) return;
-          const isOpen = guide.style.display !== 'none' && guide.style.display !== '';
-          if (isOpen) {
+          if (_iosGuideOpen) {
             // Collapse: pause + hide.
             try { video.pause(); } catch {}
             guide.style.display = 'none';
             guideBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px; vertical-align:-2px;"><path d="M8 5v14l11-7z"/></svg>Cara Install (lihat video)';
+            _iosGuideOpen = false;
           } else {
             // Expand: lazy-set src on first show, then play. Subsequent
             // toggles just play() — browser keeps the buffer.
             if (!video.src) video.src = 'assets/install-ios.mp4';
-            guide.style.display = '';
+            guide.style.display = 'block';
             guideBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px; vertical-align:-2px;"><path d="M6 6h12v12H6z"/></svg>Tutup video';
             try { video.play(); } catch {}
             // Smooth scroll the video into view so iOS PWA shows it without manual scroll.
             try { setTimeout(() => guide.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); } catch {}
+            _iosGuideOpen = true;
           }
         });
       }
