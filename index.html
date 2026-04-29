@@ -4119,6 +4119,11 @@
            equal to the composer-reserved area, the message stops just above
            the composer instead of sliding underneath it. */
         scroll-padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
+        /* Smooth out the padding shift that happens when chatLayoutSync()
+           updates --chat-bottom-pad after first measurement. Without this,
+           the chat box "jumps" when the variable goes from fallback to
+           computed. 220ms feels natural and short enough to not delay UX. */
+        transition: padding-bottom 220ms cubic-bezier(0.2, 0, 0.2, 1);
       }
       /* Per-bubble fallback for scroll containers that ignore scroll-padding
          (older Safari) and for the body/window scroller used on mobile when
@@ -4139,6 +4144,10 @@
         border-radius: 22px;
         padding: 10px;
         box-shadow: 0 10px 24px rgba(15,23,42,0.14), 0 2px 6px rgba(15,23,42,0.05);
+        /* Smooth slide when the keyboard opens / closes (visualViewport
+           resize updates --chat-composer-bottom). Same easing as the
+           messages padding for a coherent feel. */
+        transition: bottom 220ms cubic-bezier(0.2, 0, 0.2, 1);
       }
       [data-theme="dark"] #view-chat .chat-composer {
         box-shadow: 0 10px 24px rgba(0,0,0,0.5);
@@ -6932,7 +6941,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (titleTextEl) titleTextEl.textContent = titleMap[view] || view;
       if (view === 'dashboard') renderDashboard();
       if (view === 'detail') renderDetail();
-      if (view === 'chat') renderChat();
+      if (view === 'chat') {
+        // Pre-compute composer geometry BEFORE first render so --chat-bottom-pad
+        // is already at its true value when the layout paints. Without this,
+        // the variable starts at the CSS fallback then jumps once chatLayoutSync
+        // runs in the post-render RAF — visible as a "size shift" animation.
+        try { chatLayoutSync(); } catch {}
+        renderChat();
+      }
       if (view === 'sheets') renderSheets();
       if (view === 'admin') {
         // Show loading state instantly, then fetch + re-render once data lands.
