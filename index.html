@@ -4110,21 +4110,20 @@
         grid-template-rows: 1fr; /* composer is out of flow via fixed */
       }
       #view-chat .chat-messages {
-        /* Reserve space for composer + nav. The actual reserved px is set
-           dynamically by JS (chatLayoutSync) based on the composer's measured
-           height + nav height — fixed 140px wasn't enough when chips wrap. */
-        padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
-        scroll-padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
-        /* No transition on padding — the previous "shrink" animation was
-           jerky. We pre-compute --chat-bottom-pad in navigateTo so the
-           value is correct on first paint; subsequent updates (chip count,
-           keyboard) snap silently behind the composer's enter animation. */
+        /* Reserve space for composer + nav. CSS fallback is generous so the
+           first paint already has enough room — JS chatLayoutSync only ever
+           refines the value after layout settles, never causing a visible
+           "size shift" the user can perceive. 228px covers: 84px composer-
+           bottom-offset + ~120px composer height + 24px buffer. iPhone's
+           safe-area-inset-bottom adds ~34px more on top automatically. */
+        padding-bottom: var(--chat-bottom-pad, calc(228px + env(safe-area-inset-bottom)));
+        scroll-padding-bottom: var(--chat-bottom-pad, calc(228px + env(safe-area-inset-bottom)));
       }
       /* Per-bubble fallback for scroll containers that ignore scroll-padding
          (older Safari) and for the body/window scroller used on mobile when
          .chat-layout has height:auto. */
       #view-chat .chat-messages > .msg {
-        scroll-margin-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
+        scroll-margin-bottom: var(--chat-bottom-pad, calc(228px + env(safe-area-inset-bottom)));
       }
       #view-chat .chat-composer {
         position: fixed;
@@ -4143,21 +4142,12 @@
            resize updates --chat-composer-bottom). */
         transition: bottom 220ms cubic-bezier(0.2, 0, 0.2, 1);
       }
-      /* Composer enter animation when the chat view becomes active. Combines
-         fade-in + slide-up-from-below so there is no perceived "size shift"
-         (which felt patah-patah / broken when interpolating padding). The
-         animation only fires on .active so it doesn't re-trigger on every
-         renderChat tick. */
-      @keyframes chatComposerEnter {
-        from { opacity: 0; transform: translateY(18px); }
-        to   { opacity: 1; transform: translateY(0); }
-      }
-      #view-chat.view.active .chat-composer {
-        animation: chatComposerEnter 260ms cubic-bezier(0.2, 0.85, 0.3, 1.0) both;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #view-chat.view.active .chat-composer { animation: none; }
-      }
+      /* Composer animation: dropped. The parent .view's existing fadeIn
+         (200ms opacity + slight translateY at line ~382) already handles
+         the enter transition. Stacking another animation on the composer
+         child caused two competing tweens that the user perceived as
+         "patah-patah". Now the entire chat view fades in as one — composer
+         rides along with its parent, no layered animation. */
       [data-theme="dark"] #view-chat .chat-composer {
         box-shadow: 0 10px 24px rgba(0,0,0,0.5);
       }
@@ -6951,13 +6941,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (view === 'dashboard') renderDashboard();
       if (view === 'detail') renderDetail();
       if (view === 'chat') {
-        // Pre-compute composer geometry BEFORE first render so --chat-bottom-pad
-        // is already at its true value when the layout paints. Without this,
-        // the variable starts at the CSS fallback then jumps once chatLayoutSync
-        // runs in the post-render RAF — visible as a "size shift" animation.
-        try { chatLayoutSync(); } catch {}
         // Force nav back if user landed on chat while scroll-hide had it off.
         try { document.getElementById('mobileNav')?.classList?.remove('hide'); } catch {}
+        // Note: chatLayoutSync runs at the END of renderChat (in a 2-RAF
+        // dance) — calling it BEFORE renderChat measured a stale composer
+        // (chips not yet updated) and caused a second snap. Now we rely on
+        // the CSS fallback being close enough for first paint, and
+        // chatLayoutSync only refines after rendering is done.
         renderChat();
       }
       if (view === 'sheets') renderSheets();
