@@ -5492,25 +5492,25 @@
                     </span>
                     <span class="switch"><input type="checkbox" data-notif-cat="pendingChat" /><span class="slider"></span></span>
                   </label>
-                  <label class="notif-toggle-row notif-toggle-soon">
+                  <label class="notif-toggle-row">
                     <span class="notif-toggle-info">
                       <span class="notif-toggle-emoji">☀️</span>
                       <span>
-                        <span class="notif-toggle-title">Daily reminder <span class="notif-soon-pill">Coming soon</span></span>
-                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" — perlu server push (next iteration).</span>
+                        <span class="notif-toggle-title">Daily reminder</span>
+                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" tiap jam 21:00 WIB. (Perlu login untuk subscribe.)</span>
                       </span>
                     </span>
-                    <span class="switch"><input type="checkbox" data-notif-cat="daily" disabled /><span class="slider"></span></span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="daily" data-server-push /><span class="slider"></span></span>
                   </label>
-                  <label class="notif-toggle-row notif-toggle-soon">
+                  <label class="notif-toggle-row">
                     <span class="notif-toggle-info">
                       <span class="notif-toggle-emoji">📊</span>
                       <span>
-                        <span class="notif-toggle-title">Weekly summary <span class="notif-soon-pill">Coming soon</span></span>
-                        <span class="notif-toggle-hint">Ringkasan keuangan tiap Senin pagi — perlu server push (next iteration).</span>
+                        <span class="notif-toggle-title">Weekly summary</span>
+                        <span class="notif-toggle-hint">Ringkasan keuangan tiap Senin 08:00 WIB (income, expense, net). Perlu login untuk subscribe.</span>
                       </span>
                     </span>
-                    <span class="switch"><input type="checkbox" data-notif-cat="weekly" disabled /><span class="slider"></span></span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="weekly" data-server-push /><span class="slider"></span></span>
                   </label>
                 </div>
                 <div class="hint" id="notifPermHint" style="margin-top:10px;"></div>
@@ -11987,6 +11987,75 @@ Use the user input carefully, but keep the output minimal and structured. Return
       },
     };
 
+    // ============ WEB PUSH SUBSCRIPTION (server-side notifs) ============
+    // Daily reminder + Weekly summary fire from the Worker's cron, not from
+    // the page. To receive them, the browser registers a PushSubscription
+    // (one per device) and we POST it to /api/push/subscribe along with the
+    // user's per-category prefs. Toggling either flag in Settings triggers a
+    // re-subscribe so the Worker's KV reflects the latest state.
+    function _b64UrlToUint8(b64) {
+      const pad = '='.repeat((4 - b64.length % 4) % 4);
+      const s = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+      const bin = atob(s);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return u8;
+    }
+    async function _fetchVapidPublicKey() {
+      const res = await fetch(`${CONFIG.WORKER_URL}/api/push/vapid-public-key`);
+      if (!res.ok) throw new Error('VAPID key tidak tersedia (Worker belum deploy?)');
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok || !data.key) throw new Error('VAPID key invalid');
+      return data.key;
+    }
+    async function _getOrCreatePushSubscription() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        throw new Error('Browser ini nggak support Web Push.');
+      }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) return sub;
+      const vapidB64 = await _fetchVapidPublicKey();
+      const applicationServerKey = _b64UrlToUint8(vapidB64);
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+      return sub;
+    }
+    async function pushSyncSubscription() {
+      // No-op if user is anonymous (server can't bind subscription to a userId
+      // without a session token) or if both server-push prefs are off.
+      if (!isLoggedIn()) return { ok: false, reason: 'not-logged-in' };
+      const n = state.settings && state.settings.notif;
+      if (!n) return { ok: false, reason: 'no-prefs' };
+      const wantDaily = !!n.daily;
+      const wantWeekly = !!n.weekly;
+      const token = getSessionToken();
+      if (!token) return { ok: false, reason: 'no-session' };
+
+      try {
+        if (!wantDaily && !wantWeekly) {
+          // Tell server to drop the subscription entirely.
+          await fetch(`${CONFIG.WORKER_URL}/api/push/unsubscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          });
+          return { ok: true, action: 'unsubscribed' };
+        }
+        // Otherwise (re-)register.
+        const sub = await _getOrCreatePushSubscription();
+        const json = sub.toJSON();
+        const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Asia/Jakarta';
+        const res = await fetch(`${CONFIG.WORKER_URL}/api/push/subscribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ subscription: json, prefs: { daily: wantDaily, weekly: wantWeekly }, tz }),
+        });
+        if (!res.ok) throw new Error(`subscribe failed: ${res.status}`);
+        return { ok: true, action: 'subscribed' };
+      } catch (e) {
+        return { ok: false, error: String(e && e.message || e) };
+      }
+    }
+
     // Track which budget thresholds + goal milestones have already fired so we
     // don't spam the same notification each time the user adds another small
     // expense. Resets when month rolls over (budget) or goal is achieved.
@@ -12856,6 +12925,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
       saveState();
       showApp();
       toast(`Halo, ${name} 👋`);
+      // If the user already had server-push prefs on (e.g., re-login on
+      // another device), make sure the Worker has a fresh subscription.
+      try {
+        const n = state.settings && state.settings.notif;
+        if (n && (n.daily || n.weekly)) { pushSyncSubscription().catch(() => {}); }
+      } catch {}
     }
     // Sidebar logout icon. Keeps the user in the app (anonymous mode) instead
     // of showing the fullscreen #login gate, so the auth-locked features
@@ -15291,11 +15366,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
           : (perm === 'default' ? 'Status izin browser: belum diminta. Aktifkan toggle di atas untuk minta izin.' : '');
       }
 
-      // Per-category toggles
+      // Per-category toggles. Server-push toggles (daily/weekly) need a logged-in
+      // session to bind subscription to a userId; gray them out for anonymous users.
+      const linked = isLoggedIn();
       document.querySelectorAll('[data-notif-cat]').forEach((inp) => {
         const cat = inp.dataset.notifCat;
-        if (cat === 'daily' || cat === 'weekly') return; // disabled placeholders
-        inp.checked = !!(n[cat] !== false);
+        const serverPush = inp.hasAttribute('data-server-push');
+        inp.checked = !!n[cat];
+        if (serverPush && !linked) {
+          inp.disabled = true;
+          // Show a tiny hint right under the row's title.
+          const row = inp.closest('.notif-toggle-row');
+          if (row) row.classList.add('notif-toggle-soon');
+        } else {
+          inp.disabled = false;
+          const row = inp.closest('.notif-toggle-row');
+          if (row) row.classList.remove('notif-toggle-soon');
+        }
       });
     }
 
@@ -15313,13 +15400,35 @@ Use the user input carefully, but keep the output minimal and structured. Return
           renderNotifCard();
         });
       }
-      // Per-category checkboxes — write back to state.
+      // Per-category checkboxes — write back to state. For server-push
+      // toggles (daily/weekly), also (un)subscribe via the Worker so cron
+      // delivery reflects the latest preference.
       document.querySelectorAll('[data-notif-cat]').forEach((inp) => {
-        inp.addEventListener('change', (e) => {
+        inp.addEventListener('change', async (e) => {
           const cat = e.target.dataset.notifCat;
+          const serverPush = e.target.hasAttribute('data-server-push');
           if (!state.settings.notif) state.settings.notif = {};
           state.settings.notif[cat] = !!e.target.checked;
           saveState();
+          if (serverPush) {
+            // Optimistic UI; revert on failure.
+            const r = await pushSyncSubscription();
+            if (!r.ok) {
+              if (r.reason === 'not-logged-in') {
+                toast('Login dulu di card "☁️ Akun" supaya server-push bisa subscribe.', 'info');
+              } else {
+                toast('Gagal sinkronisasi push: ' + (r.error || r.reason || 'unknown'), 'error');
+              }
+              // Revert checkbox + state
+              e.target.checked = false;
+              state.settings.notif[cat] = false;
+              saveState();
+            } else if (r.action === 'subscribed') {
+              toast('Notifikasi server aktif ✓', 'success');
+            } else if (r.action === 'unsubscribed') {
+              toast('Notifikasi server dimatikan.', 'info');
+            }
+          }
         });
       });
     }
