@@ -221,6 +221,46 @@
       color: var(--text-primary);
     }
 
+    /* Wrapper around the chat icon so the unread-pending badge can sit
+       in the icon's top-right corner (instead of next to the label). */
+    .nav-item .nav-icon-wrap { position: relative; display: inline-flex; align-items: center; }
+
+    /* Pending-transactions badge shared by desktop sidebar + mobile bottom nav.
+       Game-style red pill with white number; pulses subtly to draw the eye. */
+    .nav-badge {
+      position: absolute;
+      top: -5px; right: -8px;
+      min-width: 16px; height: 16px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: #DC2626;
+      color: #fff;
+      font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
+      line-height: 16px; text-align: center;
+      box-shadow: 0 0 0 2px var(--bg-secondary, #fff), 0 1px 2px rgba(0,0,0,0.18);
+      pointer-events: none;
+      letter-spacing: -0.2px;
+      animation: nav-badge-pulse 1.6s ease-in-out infinite;
+    }
+    .nav-badge[hidden] { display: none; }
+    @keyframes nav-badge-pulse {
+      0%,100% { transform: scale(1); }
+      50%     { transform: scale(1.08); }
+    }
+    /* Mobile featured chat button has the badge anchored to the round button.
+       Override the default `.mobile-nav-item.featured > span { display: none }`
+       rule (which is meant for the text label) so the badge stays visible. */
+    .nav-badge-mobile {
+      position: absolute;
+      top: 2px; right: 2px;
+      display: inline-block;
+      box-shadow: 0 0 0 2px var(--bg-secondary, #fff), 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .nav-badge-mobile[hidden] { display: none; }
+    .mobile-nav-item.featured > span.nav-badge-mobile { display: inline-block; }
+    .mobile-nav-item.featured > span.nav-badge-mobile[hidden] { display: none; }
+    .mobile-nav-item.featured { position: relative; }
+
     .nav-item.active {
       background: var(--accent-dim);
       color: var(--accent);
@@ -707,6 +747,25 @@
     }
     [data-sortable][data-drag-mode="1"] .acct-card:not(.is-dragging) { transition: transform 200ms ease; }
     [data-sortable][data-drag-mode="1"] { cursor: grabbing; }
+    /* Notification settings: per-category toggle rows. Two-column layout —
+       label/description on left, switch on right — with subtle row separator. */
+    .notif-toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 8px 0;
+      border-top: 1px solid var(--border);
+    }
+    .notif-toggle-row:first-child { border-top: 0; padding-top: 4px; }
+    .notif-toggle-info { display: inline-flex; gap: 10px; align-items: flex-start; flex: 1; min-width: 0; }
+    .notif-toggle-emoji { font-size: 18px; line-height: 1; flex-shrink: 0; padding-top: 2px; }
+    .notif-toggle-title { display: block; font-weight: 600; font-size: 13px; color: var(--text-primary); }
+    .notif-toggle-hint  { display: block; font-size: 11.5px; color: var(--text-tertiary); line-height: 1.45; margin-top: 2px; }
+    .notif-soon-pill {
+      display: inline-block; margin-left: 6px; padding: 1px 6px;
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      background: var(--bg-elev); color: var(--text-tertiary); border-radius: 999px;
+    }
+    .notif-toggle-row.notif-toggle-soon { opacity: 0.6; }
+
     /* Empty-state prompt used by Accounts Balance + Budget cards when the
        user hasn't set anything up yet. Centered, friendly, optional CTA. */
     .ds-empty-state {
@@ -4438,8 +4497,11 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
           Detail
         </button>
-        <button class="nav-item" data-view="chat">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <button class="nav-item nav-item-chat" data-view="chat">
+          <span class="nav-icon-wrap">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="nav-badge" data-chat-badge hidden></span>
+          </span>
           Chat Bot
         </button>
         <button class="nav-item" data-view="sheets">
@@ -5372,6 +5434,89 @@
               <div id="installCardManual" class="hint" style="margin-top:10px; line-height:1.7; display:none;"></div>
             </div>
 
+            <!-- ===== Notifikasi (push + local) ===== -->
+            <div class="card" id="settingsNotifCard">
+              <div class="card-title mb-3">🔔 Notifikasi</div>
+              <div class="row-between" style="flex-wrap:wrap; gap:10px;">
+                <div>
+                  <div style="font-weight:600;">Aktifkan Notifikasi</div>
+                  <div class="text-sm text-muted" id="notifMasterDesc">Kasih izin browser supaya inputIn bisa kasih notifikasi penting (budget alert, goal milestone, dll).</div>
+                </div>
+                <div class="row">
+                  <label class="switch">
+                    <input type="checkbox" id="toggleNotifMaster" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div id="notifSubsection" style="margin-top:14px; display:none;">
+                <div class="text-sm text-muted" style="margin-bottom:8px; font-weight:600;">Pilih notifikasi yang aktif:</div>
+                <div class="stack-sm" style="gap:10px;">
+                  <label class="notif-toggle-row">
+                    <span class="notif-toggle-info">
+                      <span class="notif-toggle-emoji">⚠️</span>
+                      <span>
+                        <span class="notif-toggle-title">Budget alert</span>
+                        <span class="notif-toggle-hint">Saat input transaksi yang tembus 80% / 100% budget kategori.</span>
+                      </span>
+                    </span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="budget" /><span class="slider"></span></span>
+                  </label>
+                  <label class="notif-toggle-row">
+                    <span class="notif-toggle-info">
+                      <span class="notif-toggle-emoji">🎯</span>
+                      <span>
+                        <span class="notif-toggle-title">Goal milestone</span>
+                        <span class="notif-toggle-hint">Saat kontribusi goal nyentuh 25% / 50% / 75% / 100%.</span>
+                      </span>
+                    </span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="goal" /><span class="slider"></span></span>
+                  </label>
+                  <label class="notif-toggle-row">
+                    <span class="notif-toggle-info">
+                      <span class="notif-toggle-emoji">🔁</span>
+                      <span>
+                        <span class="notif-toggle-title">Recurring auto-posted</span>
+                        <span class="notif-toggle-hint">Saat transaksi terjadwal (gaji, cicilan, dll) otomatis tercatat.</span>
+                      </span>
+                    </span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="recurring" /><span class="slider"></span></span>
+                  </label>
+                  <label class="notif-toggle-row">
+                    <span class="notif-toggle-info">
+                      <span class="notif-toggle-emoji">💬</span>
+                      <span>
+                        <span class="notif-toggle-title">Chat tertunda</span>
+                        <span class="notif-toggle-hint">Pengingat 10 menit setelah app ditutup kalau ada transaksi chat yang belum di-Simpan.</span>
+                      </span>
+                    </span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="pendingChat" /><span class="slider"></span></span>
+                  </label>
+                  <label class="notif-toggle-row notif-toggle-soon">
+                    <span class="notif-toggle-info">
+                      <span class="notif-toggle-emoji">☀️</span>
+                      <span>
+                        <span class="notif-toggle-title">Daily reminder <span class="notif-soon-pill">Coming soon</span></span>
+                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" — perlu server push (next iteration).</span>
+                      </span>
+                    </span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="daily" disabled /><span class="slider"></span></span>
+                  </label>
+                  <label class="notif-toggle-row notif-toggle-soon">
+                    <span class="notif-toggle-info">
+                      <span class="notif-toggle-emoji">📊</span>
+                      <span>
+                        <span class="notif-toggle-title">Weekly summary <span class="notif-soon-pill">Coming soon</span></span>
+                        <span class="notif-toggle-hint">Ringkasan keuangan tiap Senin pagi — perlu server push (next iteration).</span>
+                      </span>
+                    </span>
+                    <span class="switch"><input type="checkbox" data-notif-cat="weekly" disabled /><span class="slider"></span></span>
+                  </label>
+                </div>
+                <div class="hint" id="notifPermHint" style="margin-top:10px;"></div>
+              </div>
+            </div>
+
             <div class="card">
               <div class="card-title mb-3">🧭 Tour Aplikasi</div>
               <p class="text-sm text-muted" style="margin:0 0 12px;">Ulangi tour kapan saja untuk kenalan ulang dengan fitur-fitur inputIn.</p>
@@ -5462,6 +5607,7 @@
       <button class="mobile-nav-item featured" data-view="chat" data-mnav="chat" aria-label="Chat Bot">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         <span>Chat Bot</span>
+        <span class="nav-badge nav-badge-mobile" data-chat-badge hidden></span>
       </button>
       <button class="mobile-nav-item" data-view="plans" data-mnav="plans">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -5607,6 +5753,19 @@
         onboardingDone: false,
         defaultAccountEnabled: false,
         defaultAccount: '',
+        // Notification prefs. master must be true AND Notification.permission
+        // === 'granted' for any notif to fire. Per-category toggles let users
+        // mute specific events. Server-push items (daily, weekly) are stored
+        // here too so the worker can read them when subscribing.
+        notif: {
+          master: false,
+          budget: true,
+          goal: true,
+          recurring: true,
+          pendingChat: true,
+          daily: false,
+          weekly: false,
+        },
       },
       // Opening-balance accounts. Counted as a one-time additive baseline for
       // the dashboard Balance card - before any income/expense txns flow in.
@@ -6600,7 +6759,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         renderAdmin();
         fetchAdminUsers().then(() => renderAdmin());
       }
-      if (view === 'settings') { renderInitialBalances(); renderAccountPanel(); renderDefaultAccountCard(); renderInstallCard(); }
+      if (view === 'settings') { renderInitialBalances(); renderAccountPanel(); renderDefaultAccountCard(); renderInstallCard(); renderNotifCard(); }
       if (view === 'plans') renderPlans();
       updateMobileFab();
       closeSidebarMobile();
@@ -8456,7 +8615,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               if (!sources.length) { toast('Tambah minimal 1 akun sumber di Settings dulu', 'error'); return; }
               // Transfer row: net-zero for Income/Expense KPIs, debits source
               // account, credits goal account via accountBalance's Transfer branch.
-              state.transactions.push({
+              const goalTx = {
                 id: 'tx-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
                 Date: todayISO(),
                 Type: 'Transfer',
@@ -8468,12 +8627,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 fromAccount: from,
                 toAccount: g.name,
                 ts: Date.now(),
-              });
+              };
+              state.transactions.push(goalTx);
               saveState();
               closeModal();
               renderGoalsGrid();
               if (document.getElementById('view-settings')?.classList.contains('active')) renderInitialBalances();
               toast(`+Rp ${add.toLocaleString('id-ID')} ${from} → ${g.name} ✓`);
+              try { notifyTxnLanded(goalTx); } catch {}
             } },
         ],
       });
@@ -8486,6 +8647,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const postedCount = materializeRecurring();
       if (postedCount > 0) {
         toast(`🔁 Auto-post: ${postedCount} transaksi terjadwal`);
+        try { Notif.fireRecurring(postedCount); } catch {}
       }
       // Refresh the "Next 3 days" recurring preview - call after materialize
       // so any nextRunISO that just rolled forward is reflected immediately.
@@ -9954,6 +10116,30 @@ Use the user input carefully, but keep the output minimal and structured. Return
     function _msgKey(m, i) {
       return m.id ? String(m.id) : (m._typing ? String(m._typing) : `${m.role}:${m.ts || ''}:${i}`);
     }
+    // Returns the count of chat transactions that are still waiting for the
+    // user to "Simpan" or "Batal". Pure read of state.messages.
+    function chatPendingCount() {
+      if (!state || !Array.isArray(state.messages)) return 0;
+      return state.messages.filter((m) => m && m.role === 'txn' && !m.saved).length;
+    }
+    // Refresh the red badge on every chat-nav button (desktop + mobile).
+    // Called on every renderChat tick + on boot + after save/cancel/edit.
+    function updateChatPendingBadge() {
+      const n = chatPendingCount();
+      const label = n > 99 ? '99+' : String(n);
+      document.querySelectorAll('[data-chat-badge]').forEach((el) => {
+        if (n > 0) {
+          el.textContent = label;
+          el.hidden = false;
+        } else {
+          el.hidden = true;
+          el.textContent = '';
+        }
+      });
+      // Side-effect: feed the 10-min "pending while app closed" reminder.
+      try { armPendingChatReminder(n); } catch {}
+    }
+
     function renderChat() {
       // Auth gate: anonymous users see the lock card. The worker also rejects
       // unauth'd /api/ai/parse calls, so this is just UI hint, not security.
@@ -9979,8 +10165,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Prune ids that no longer exist (e.g. typing indicator removed)
       renderedChatIds.forEach((id) => { if (!seen.has(id)) renderedChatIds.delete(id); });
       seen.forEach((id) => renderedChatIds.add(id));
-      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+      // Auto-scroll to the latest message. Two passes:
+      // 1) container.scrollTop — works on desktop where .chat-messages has
+      //    overflow-y:auto; cheap, no scroll-anchor jitter.
+      // 2) lastChild.scrollIntoView — fallback for mobile where the layout
+      //    has height:auto so the body/window is what actually scrolls.
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+        const last = el.lastElementChild;
+        if (last) last.scrollIntoView({ block: 'end', inline: 'nearest' });
+      });
       renderChatChips();
+      // Update the pending-transaction badge on the chat nav (mobile + desktop).
+      try { updateChatPendingBadge(); } catch {}
     }
 
     function renderChatChips() {
@@ -10572,6 +10769,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       saveState();
       renderChat();
       toast('Transaksi tersimpan ✓', 'success');
+      try { notifyTxnLanded(t); } catch {}
     }
 
     function cancelTxn(msgId) {
@@ -11452,6 +11650,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         saveState();
         renderDashboard();
         if (document.querySelector('.view.active')?.id === 'view-sheets') renderSheets();
+        try { notifyTxnLanded(tx); } catch {}
 
         if (keepOpen) {
           toast('Disimpan ✓ - input berikutnya');
@@ -11695,6 +11894,188 @@ Use the user input carefully, but keep the output minimal and structured. Return
       el.textContent = msg;
       document.getElementById('toasts').appendChild(el);
       setTimeout(() => el.remove(), 3200);
+    }
+
+    // ============ NOTIFICATIONS ============
+    // Local-only notifications (Budget alert, Goal milestone, Recurring posted,
+    // Pending-chat reminder). Server-pushed items (Daily reminder, Weekly
+    // summary) read state.settings.notif from this object too — Worker side
+    // subscribes/unsubscribes based on those flags via /api/push/subscribe.
+    const Notif = {
+      supported() { return typeof Notification !== 'undefined' && 'serviceWorker' in navigator; },
+      permission() { return this.supported() ? Notification.permission : 'unsupported'; },
+      // True iff the user explicitly enabled notifications AND the browser granted permission.
+      enabled() { return this.permission() === 'granted' && !!(state.settings && state.settings.notif && state.settings.notif.master); },
+      categoryOn(key) {
+        const n = state.settings && state.settings.notif;
+        return !!(n && n.master && n[key] !== false);
+      },
+      async request() {
+        if (!this.supported()) { toast('Browser kamu nggak dukung notifikasi.', 'error'); return 'unsupported'; }
+        try {
+          const r = await Notification.requestPermission();
+          if (r === 'granted') {
+            state.settings.notif.master = true;
+            saveState();
+            // Confirmation notif so user knows it works.
+            this._show('Notifikasi inputIn aktif ✓', { body: 'Kamu akan dikabari saat ada budget alert, goal milestone, atau transaksi tertunda.', tag: 'notif-enabled' });
+            toast('Notifikasi diaktifkan ✓', 'success');
+          } else if (r === 'denied') {
+            state.settings.notif.master = false;
+            saveState();
+            toast('Notifikasi diblokir browser. Aktifkan manual di setting browser kalau mau.', 'error');
+          }
+          return r;
+        } catch (e) {
+          return 'denied';
+        }
+      },
+      // Internal: show via SW registration if available (richer features +
+      // works while page is hidden), fallback to plain Notification.
+      _show(title, opts = {}) {
+        if (!this.supported() || this.permission() !== 'granted') return;
+        const merged = Object.assign({
+          icon: 'assets/inputin-icon.png',
+          badge: 'assets/inputin-icon.png',
+          renotify: false,
+        }, opts);
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, merged)).catch(() => {
+              try { new Notification(title, merged); } catch {}
+            });
+            return;
+          }
+          new Notification(title, merged);
+        } catch {}
+      },
+      // Public category-specific helpers. Each one short-circuits if the
+      // master toggle or its category toggle is off.
+      fireBudget(category, pct, spent, limit) {
+        if (!this.categoryOn('budget')) return;
+        const isOver = pct >= 100;
+        const title = isOver ? `🔴 Budget ${category} terlampaui` : `⚠️ Budget ${category} ${pct}%`;
+        const body  = isOver
+          ? `Pengeluaran sudah Rp${formatCompact(spent)} dari batas Rp${formatCompact(limit)}.`
+          : `Sudah pakai Rp${formatCompact(spent)} dari batas Rp${formatCompact(limit)}.`;
+        this._show(title, { body, tag: `budget-${category}-${Math.floor(pct/20)}` });
+      },
+      fireGoal(name, pct, balance, target) {
+        if (!this.categoryOn('goal')) return;
+        const done = pct >= 100;
+        const title = done ? `🎉 Goal "${name}" tercapai!` : `🎯 Goal "${name}" sampai ${pct}%`;
+        const body  = done
+          ? `Target Rp${formatCompact(target)} udah tercapai. Selamat!`
+          : `Saat ini Rp${formatCompact(balance)} dari Rp${formatCompact(target)}.`;
+        this._show(title, { body, tag: `goal-${name}-${Math.floor(pct/25)}` });
+      },
+      fireRecurring(count) {
+        if (!this.categoryOn('recurring')) return;
+        if (!count) return;
+        this._show(`🔁 ${count} transaksi recurring otomatis tercatat`, {
+          body: 'Buka inputIn untuk lihat detail.',
+          tag: 'recurring-' + new Date().toISOString().slice(0, 10),
+        });
+      },
+      firePendingChat(count) {
+        if (!this.categoryOn('pendingChat')) return;
+        if (!count) return;
+        this._show('Ada transaksi yang belum tersimpan di Chat Bot', {
+          body: `${count} transaksi nunggu konfirmasi "Simpan" atau "Batal".`,
+          tag: 'pending-chat',
+        });
+      },
+    };
+
+    // Track which budget thresholds + goal milestones have already fired so we
+    // don't spam the same notification each time the user adds another small
+    // expense. Resets when month rolls over (budget) or goal is achieved.
+    const _notifFired = { budget: {}, goal: {} };
+    function checkBudgetCrossings(prevSpent, newSpent, category) {
+      if (!Notif.enabled()) return;
+      const b = (state.budgets || []).find((x) => x.category === category);
+      if (!b) return;
+      const limit = Number(b.monthlyLimit || b.limit || 0);
+      if (!limit) return;
+      const newPct = Math.round((newSpent / limit) * 100);
+      const prevPct = Math.round((prevSpent / limit) * 100);
+      const monthKey = new Date().toISOString().slice(0, 7);
+      const dedupKey = category + ':' + monthKey;
+      // Tier crossings: 80% (warn) and 100% (over). Fire once per tier per month.
+      const fired = _notifFired.budget[dedupKey] = _notifFired.budget[dedupKey] || {};
+      if (newPct >= 100 && prevPct < 100 && !fired.over) {
+        fired.over = true; Notif.fireBudget(category, newPct, newSpent, limit);
+      } else if (newPct >= 80 && prevPct < 80 && !fired.warn) {
+        fired.warn = true; Notif.fireBudget(category, newPct, newSpent, limit);
+      }
+    }
+    function checkGoalCrossings(goal, prevBalance, newBalance) {
+      if (!Notif.enabled()) return;
+      if (!goal || !goal.target) return;
+      const target = Number(goal.target || 0); if (!target) return;
+      const newPct = Math.round((newBalance / target) * 100);
+      const prevPct = Math.round((prevBalance / target) * 100);
+      const tiers = [25, 50, 75, 100];
+      const fired = _notifFired.goal[goal.name] = _notifFired.goal[goal.name] || {};
+      for (const t of tiers) {
+        if (newPct >= t && prevPct < t && !fired[t]) {
+          fired[t] = true;
+          Notif.fireGoal(goal.name, newPct, newBalance, target);
+        }
+      }
+    }
+
+    // 10-minute "you have unsaved chat transactions" reminder. Fired only when
+    // the page has been hidden for ≥10min AND there are still pendings AND
+    // master + pendingChat toggles are on. setTimeout in background tabs is
+    // throttled by mobile browsers, so this is "best effort" — the next-best
+    // thing is server push (planned for Phase 2). Re-arm on every state change
+    // so cancel/save resets the countdown.
+    let _pendingChatTimer = null;
+    function armPendingChatReminder(currentCount) {
+      if (_pendingChatTimer) { clearTimeout(_pendingChatTimer); _pendingChatTimer = null; }
+      if (!Notif.categoryOn('pendingChat')) return;
+      if (!currentCount) return;
+      if (typeof document === 'undefined' || !document.hidden) return; // only when hidden
+      _pendingChatTimer = setTimeout(() => {
+        _pendingChatTimer = null;
+        if (document.hidden && chatPendingCount() > 0) {
+          Notif.firePendingChat(chatPendingCount());
+        }
+      }, 10 * 60 * 1000);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        armPendingChatReminder(chatPendingCount());
+      } else if (_pendingChatTimer) {
+        clearTimeout(_pendingChatTimer);
+        _pendingChatTimer = null;
+      }
+    });
+
+    // Centralized hook fired after a user-initiated transaction lands. Detects
+    // budget threshold crossings (Expense vs monthly limit) and goal milestone
+    // crossings (Transfer toAccount === goal name) and emits the right local
+    // notifications. Pure read of state — pushed tx must already be in state.transactions.
+    function notifyTxnLanded(tx) {
+      if (!Notif.enabled()) return;
+      try {
+        if (tx && tx.Type === 'Expense' && tx['Transaction Category']) {
+          const cat = tx['Transaction Category'];
+          const newSpent = budgetSpent(cat);
+          const prevSpent = Math.max(0, newSpent - (tx.Value || 0));
+          checkBudgetCrossings(prevSpent, newSpent, cat);
+        }
+        if (tx && tx.Type === 'Transfer' && tx.toAccount) {
+          const goals = (state.initialBalances && state.initialBalances.goals) || [];
+          const goal = goals.find((g) => g.name === tx.toAccount);
+          if (goal) {
+            const newBal = accountBalance(tx.toAccount);
+            const prevBal = Math.max(0, newBal - (tx.Value || 0));
+            checkGoalCrossings(goal, prevBal, newBal);
+          }
+        }
+      } catch {}
     }
 
     // ============ EXPORT / IMPORT ============
@@ -14870,6 +15251,79 @@ Use the user input carefully, but keep the output minimal and structured. Return
       showManual(true);
     }
 
+    // Settings → Notifikasi card. Reflects current state.settings.notif into
+    // the toggles + the helper text on the master switch (permission state).
+    function renderNotifCard() {
+      const masterTog = document.getElementById('toggleNotifMaster');
+      const masterDesc = document.getElementById('notifMasterDesc');
+      const subSection = document.getElementById('notifSubsection');
+      const permHint = document.getElementById('notifPermHint');
+      const supported = Notif.supported();
+      const perm = Notif.permission();
+      const n = (state.settings && state.settings.notif) || {};
+
+      if (!supported) {
+        if (masterDesc) masterDesc.textContent = 'Browser kamu nggak dukung notifikasi web. Coba di Chrome / Edge / Safari (terbaru).';
+        if (masterTog) { masterTog.checked = false; masterTog.disabled = true; }
+        if (subSection) subSection.style.display = 'none';
+        return;
+      }
+
+      // Master toggle reflects (master flag AND permission granted) so user can
+      // see "off because browser denied" without us claiming we can fire.
+      const effectivelyOn = perm === 'granted' && !!n.master;
+      if (masterTog) {
+        masterTog.checked = effectivelyOn;
+        masterTog.disabled = false;
+      }
+      if (masterDesc) {
+        masterDesc.textContent = effectivelyOn
+          ? 'Notifikasi aktif. Pilih kategori di bawah yang mau kamu terima.'
+          : (perm === 'denied'
+              ? 'Browser kamu nge-block notifikasi. Buka pengaturan situs di browser → Allow notifications.'
+              : 'Kasih izin browser supaya inputIn bisa kasih notifikasi penting (budget alert, goal milestone, dll).');
+      }
+      if (subSection) subSection.style.display = effectivelyOn ? '' : 'none';
+
+      if (permHint) {
+        permHint.textContent = perm === 'denied'
+          ? 'Status izin browser saat ini: ditolak. Ubah lewat pengaturan situs.'
+          : (perm === 'default' ? 'Status izin browser: belum diminta. Aktifkan toggle di atas untuk minta izin.' : '');
+      }
+
+      // Per-category toggles
+      document.querySelectorAll('[data-notif-cat]').forEach((inp) => {
+        const cat = inp.dataset.notifCat;
+        if (cat === 'daily' || cat === 'weekly') return; // disabled placeholders
+        inp.checked = !!(n[cat] !== false);
+      });
+    }
+
+    function _wireNotifSettings() {
+      const master = document.getElementById('toggleNotifMaster');
+      if (master) {
+        master.addEventListener('change', async (e) => {
+          if (e.target.checked) {
+            const r = await Notif.request();
+            if (r !== 'granted') e.target.checked = false;
+          } else {
+            state.settings.notif.master = false;
+            saveState();
+          }
+          renderNotifCard();
+        });
+      }
+      // Per-category checkboxes — write back to state.
+      document.querySelectorAll('[data-notif-cat]').forEach((inp) => {
+        inp.addEventListener('change', (e) => {
+          const cat = e.target.dataset.notifCat;
+          if (!state.settings.notif) state.settings.notif = {};
+          state.settings.notif[cat] = !!e.target.checked;
+          saveState();
+        });
+      });
+    }
+
     function _wirePwaInstall() {
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
@@ -14951,10 +15405,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const bootPosted = materializeRecurring();
       if (bootPosted > 0) {
         setTimeout(() => toast(`🔁 Auto-post: ${bootPosted} transaksi terjadwal`), 600);
+        try { Notif.fireRecurring(bootPosted); } catch {}
       }
       if (!state.settings._themeMigrated) {
         state.settings.theme = 'light';
         state.settings._themeMigrated = true;
+        saveState();
+      }
+      // Hydrate notif prefs for users from before this feature shipped.
+      if (!state.settings.notif) {
+        state.settings.notif = { master: false, budget: true, goal: true, recurring: true, pendingChat: true, daily: false, weekly: false };
         saveState();
       }
       applyTheme(state.settings.theme);
@@ -14964,7 +15424,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
       applyAdminMode();
       _tourWireOnce();
       _wirePwaInstall();
+      _wireNotifSettings();
       _registerServiceWorker();
+      // Show current pending-chat count on the nav badge as soon as state loads.
+      try { updateChatPendingBadge(); } catch {}
 
       // Phase 9 - no login gate. Every boot auto-fills an anonymous local
       // userId so sync/pair can key against it later. Legacy `state.auth`
