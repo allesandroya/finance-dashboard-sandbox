@@ -4114,16 +4114,11 @@
            dynamically by JS (chatLayoutSync) based on the composer's measured
            height + nav height — fixed 140px wasn't enough when chips wrap. */
         padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
-        /* scrollIntoView({block:'end'}) on the latest msg lands its bottom
-           at the bottom of the scroll viewport. With scroll-padding-bottom
-           equal to the composer-reserved area, the message stops just above
-           the composer instead of sliding underneath it. */
         scroll-padding-bottom: var(--chat-bottom-pad, calc(160px + env(safe-area-inset-bottom)));
-        /* Smooth out the padding shift that happens when chatLayoutSync()
-           updates --chat-bottom-pad after first measurement. Without this,
-           the chat box "jumps" when the variable goes from fallback to
-           computed. 220ms feels natural and short enough to not delay UX. */
-        transition: padding-bottom 220ms cubic-bezier(0.2, 0, 0.2, 1);
+        /* No transition on padding — the previous "shrink" animation was
+           jerky. We pre-compute --chat-bottom-pad in navigateTo so the
+           value is correct on first paint; subsequent updates (chip count,
+           keyboard) snap silently behind the composer's enter animation. */
       }
       /* Per-bubble fallback for scroll containers that ignore scroll-padding
          (older Safari) and for the body/window scroller used on mobile when
@@ -4145,9 +4140,23 @@
         padding: 10px;
         box-shadow: 0 10px 24px rgba(15,23,42,0.14), 0 2px 6px rgba(15,23,42,0.05);
         /* Smooth slide when the keyboard opens / closes (visualViewport
-           resize updates --chat-composer-bottom). Same easing as the
-           messages padding for a coherent feel. */
+           resize updates --chat-composer-bottom). */
         transition: bottom 220ms cubic-bezier(0.2, 0, 0.2, 1);
+      }
+      /* Composer enter animation when the chat view becomes active. Combines
+         fade-in + slide-up-from-below so there is no perceived "size shift"
+         (which felt patah-patah / broken when interpolating padding). The
+         animation only fires on .active so it doesn't re-trigger on every
+         renderChat tick. */
+      @keyframes chatComposerEnter {
+        from { opacity: 0; transform: translateY(18px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      #view-chat.view.active .chat-composer {
+        animation: chatComposerEnter 260ms cubic-bezier(0.2, 0.85, 0.3, 1.0) both;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #view-chat.view.active .chat-composer { animation: none; }
       }
       [data-theme="dark"] #view-chat .chat-composer {
         box-shadow: 0 10px 24px rgba(0,0,0,0.5);
@@ -6947,6 +6956,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
         // the variable starts at the CSS fallback then jumps once chatLayoutSync
         // runs in the post-render RAF — visible as a "size shift" animation.
         try { chatLayoutSync(); } catch {}
+        // Force nav back if user landed on chat while scroll-hide had it off.
+        try { document.getElementById('mobileNav')?.classList?.remove('hide'); } catch {}
         renderChat();
       }
       if (view === 'sheets') renderSheets();
@@ -13093,8 +13104,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
         ticking = true;
         requestAnimationFrame(() => {
           const y = getY();
-          // If the sidebar is open we don't touch the nav - it's forced hidden.
           const sidebarOpen = document.getElementById('sidebar').classList.contains('open');
+          // Chat view always keeps the nav visible — the floating composer
+          // is the bottom anchor in that view, and hiding the nav while a
+          // user is mid-conversation feels broken (was: user lost the chat
+          // bot icon when scrolling chat history).
+          const inChatView = !!document.getElementById('view-chat')?.classList?.contains('active');
+          if (inChatView) {
+            mn.classList.remove('hide');
+            lastY = y;
+            ticking = false;
+            return;
+          }
           if (!sidebarOpen) {
             if (y <= SHOW_AT_TOP_EPS) {
               mn.classList.remove('hide');
