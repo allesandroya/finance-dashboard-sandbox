@@ -5592,6 +5592,27 @@
                 </div>
               </div>
               <div id="installCardManual" class="hint" style="margin-top:10px; line-height:1.7; display:none;"></div>
+              <!-- iOS-only: tombol "Cara Install" + lazy-loaded video tutorial.
+                   Hidden by default; renderInstallCard() reveals on iOS, and
+                   the click handler injects video src on first tap (lazy). -->
+              <div id="iosInstallGuideRow" style="margin-top:10px; display:none;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnIosInstallGuide">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px; vertical-align:-2px;"><path d="M8 5v14l11-7z"/></svg>
+                  Cara Install (lihat video)
+                </button>
+              </div>
+              <div id="iosInstallGuide" style="display:none; margin-top:14px;">
+                <video id="iosInstallVideo"
+                       controls autoplay loop muted playsinline
+                       preload="none"
+                       style="display:block; width:100%; max-width:300px; margin:0 auto; border-radius:14px; box-shadow:0 6px 18px rgba(15,23,42,0.18); background:#000;">
+                  <!-- src injected by JS on first tap -->
+                  Browser kamu nggak support video.
+                </video>
+                <div class="hint" style="margin-top:8px; text-align:center;">
+                  Tap <strong>Share</strong> di Safari → scroll → <strong>Add to Home Screen</strong> → Add.
+                </div>
+              </div>
             </div>
 
             <!-- ===== Notifikasi (push + local) ===== -->
@@ -15643,9 +15664,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // No native prompt: show platform-specific manual instructions.
       showBtn(false);
       const { isIOS, isFirefox, isSafariDesktop } = _platformForInstall();
+      const guideRow = document.getElementById('iosInstallGuideRow');
+      const guide = document.getElementById('iosInstallGuide');
+      // Hide the iOS video guide row + collapse video for non-iOS platforms.
+      if (guideRow) guideRow.style.display = isIOS ? '' : 'none';
+      if (!isIOS && guide) guide.style.display = 'none';
       let html = '';
       if (isIOS) {
-        html = '<strong>iPhone / iPad:</strong> Tap tombol <em>Share</em> (kotak dengan panah ke atas) di Safari, lalu pilih <em>Add to Home Screen</em>.';
+        html = '<strong>iPhone / iPad:</strong> Tap tombol <em>Share</em> (kotak dengan panah ke atas) di Safari, lalu pilih <em>Add to Home Screen</em>. Tap <strong>Cara Install</strong> di bawah untuk lihat video panduan.';
       } else if (isSafariDesktop) {
         html = '<strong>Mac Safari:</strong> Buka menu <em>File → Add to Dock…</em> untuk pasang inputIn sebagai app.';
       } else if (isFirefox) {
@@ -15899,6 +15925,33 @@ Use the user input carefully, but keep the output minimal and structured. Return
           } catch {}
           _deferredInstallPrompt = null;
           renderInstallCard();
+        });
+      }
+      // iOS "Cara Install" button: toggle the video guide. First tap injects
+      // the video src so the 1.8 MB MP4 only downloads when actually requested
+      // (lazy load — non-iOS users + iOS users who don't tap never fetch it).
+      const guideBtn = document.getElementById('btnIosInstallGuide');
+      if (guideBtn) {
+        guideBtn.addEventListener('click', () => {
+          const guide = document.getElementById('iosInstallGuide');
+          const video = document.getElementById('iosInstallVideo');
+          if (!guide || !video) return;
+          const isOpen = guide.style.display !== 'none' && guide.style.display !== '';
+          if (isOpen) {
+            // Collapse: pause + hide.
+            try { video.pause(); } catch {}
+            guide.style.display = 'none';
+            guideBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px; vertical-align:-2px;"><path d="M8 5v14l11-7z"/></svg>Cara Install (lihat video)';
+          } else {
+            // Expand: lazy-set src on first show, then play. Subsequent
+            // toggles just play() — browser keeps the buffer.
+            if (!video.src) video.src = 'assets/install-ios.mp4';
+            guide.style.display = '';
+            guideBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px; vertical-align:-2px;"><path d="M6 6h12v12H6z"/></svg>Tutup video';
+            try { video.play(); } catch {}
+            // Smooth scroll the video into view so iOS PWA shows it without manual scroll.
+            try { setTimeout(() => guide.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); } catch {}
+          }
         });
       }
     }
