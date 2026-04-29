@@ -14978,13 +14978,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
             title: 'Selamat datang di inputIn 👋',
             bodyHtml: true,
             body:
-              '<p style="margin:0 0 10px;">inputIn adalah <strong>Aplikasi Keuangan Pintar</strong> untuk pribadi maupun bisnis/UMKM — aman & ter-enkripsi. Fitur utamanya:</p>' +
+              '<p style="margin:0 0 10px;">inputIn adalah <strong>Aplikasi Keuangan Pintar</strong> untuk pribadi maupun bisnis/UMKM, aman & ter-enkripsi. Fitur utamanya:</p>' +
               '<ul class="tour-feat-list">' +
-                '<li><span class="tour-feat-emoji">💬</span><div><strong>Input pakai Chat.</strong> Tulis <em>"Baru gajian 10jt"</em> atau <em>"Beli kopi 80rb"</em> — otomatis tercatat.</div></li>' +
-                '<li><span class="tour-feat-emoji">📷</span><div><strong>Input pakai Foto/File.</strong> Kirim struk atau invoice ke chat bot — datamu otomatis ter-input.</div></li>' +
+                '<li><span class="tour-feat-emoji">💬</span><div><strong>Input pakai Chat.</strong> Tulis <em>"Baru gajian 10jt"</em> atau <em>"Beli kopi 80rb"</em> - otomatis tercatat.</div></li>' +
+                '<li><span class="tour-feat-emoji">📷</span><div><strong>Input pakai Foto/File.</strong> Kirim struk atau invoice ke chat bot - datamu otomatis ter-input.</div></li>' +
                 '<li><span class="tour-feat-emoji">🔁</span><div><strong>Recurring.</strong> Auto-catat pemasukan/pengeluaran bulanan, gaji & cicilan.</div></li>' +
                 '<li><span class="tour-feat-emoji">🎯</span><div><strong>Budget & Goals.</strong> Atur batas pengeluaran & target tabungan, mis. menikah atau DP rumah.</div></li>' +
-                '<li><span class="tour-feat-emoji">📊</span><div><strong>Dashboard Interaktif.</strong> Explore data keuanganmu dengan filter — mudah dibaca & insightful.</div></li>' +
+                '<li><span class="tour-feat-emoji">📊</span><div><strong>Dashboard Interaktif.</strong> Explore data keuanganmu dengan filter - mudah dibaca & insightful.</div></li>' +
               '</ul>' +
               '<p style="margin:10px 0 0;">Dan masih banyak fitur lain. Yuk kita keliling sebentar (~30 detik) supaya kamu kenal semua-nya. Tap <strong>"Lanjut"</strong> untuk mulai.</p>',
           },
@@ -15699,39 +15699,69 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
       // Per-category toggles. Server-push toggles (daily/weekly) need a logged-in
       // session to bind subscription to a userId; gray them out for anonymous users.
+      // ALSO: on production (inputin.app) the Cloudflare cron isn't reliably firing
+      // yet, so daily/weekly are forcibly marked "Coming soon" + disabled there.
+      // Sandbox keeps them functional so we can keep iterating on the issue.
       const linked = isLoggedIn();
+      const isProdHost = location.hostname === 'inputin.app' || location.hostname === 'www.inputin.app';
+      const serverPushAvailable = !isProdHost;
+      // Helper to ensure / remove the "Coming soon" pill on a row's title.
+      const setComingSoonPill = (row, on) => {
+        if (!row) return;
+        const title = row.querySelector('.notif-toggle-title');
+        if (!title) return;
+        const existing = title.querySelector('.notif-soon-pill');
+        if (on && !existing) {
+          const pill = document.createElement('span');
+          pill.className = 'notif-soon-pill';
+          pill.textContent = 'Coming soon';
+          title.appendChild(pill);
+        } else if (!on && existing) {
+          existing.remove();
+        }
+      };
       document.querySelectorAll('[data-notif-cat]').forEach((inp) => {
         const cat = inp.dataset.notifCat;
         const serverPush = inp.hasAttribute('data-server-push');
-        inp.checked = !!n[cat];
-        if (serverPush && !linked) {
+        const row = inp.closest('.notif-toggle-row');
+        if (serverPush && !serverPushAvailable) {
+          // Production: lock daily/weekly behind "Coming soon" until cron is healthy.
           inp.disabled = true;
-          const row = inp.closest('.notif-toggle-row');
+          inp.checked = false;
           if (row) row.classList.add('notif-toggle-soon');
+          setComingSoonPill(row, true);
+        } else if (serverPush && !linked) {
+          // Sandbox + anonymous: needs login to bind subscription.
+          inp.disabled = true;
+          inp.checked = !!n[cat];
+          if (row) row.classList.add('notif-toggle-soon');
+          setComingSoonPill(row, false);
         } else {
           inp.disabled = false;
-          const row = inp.closest('.notif-toggle-row');
+          inp.checked = !!n[cat];
           if (row) row.classList.remove('notif-toggle-soon');
+          setComingSoonPill(row, false);
         }
       });
       // Test push button: only useful once user is logged in + has a server-push
       // subscription (daily OR weekly on). Otherwise hide.
       const testRow = document.getElementById('notifTestRow');
       if (testRow) {
-        const showTest = effectivelyOn && linked && (n.daily || n.weekly);
+        const showTest = effectivelyOn && linked && (n.daily || n.weekly) && serverPushAvailable;
         testRow.style.display = showTest ? '' : 'none';
       }
-      // Time-picker rows: shown only when the parent toggle is checked.
+      // Time-picker rows: shown only when the parent toggle is checked AND
+      // server-push is actually available (hidden on prod since toggles locked).
       const dailyTimeInput = document.getElementById('notifDailyTime');
       const dailyRow = document.getElementById('notifDailyTimeRow');
       if (dailyTimeInput) dailyTimeInput.value = n.dailyTime || '21:00';
-      if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked);
+      if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked && serverPushAvailable);
       const weeklyDaySel = document.getElementById('notifWeeklyDay');
       const weeklyTimeInput = document.getElementById('notifWeeklyTime');
       const weeklyRow = document.getElementById('notifWeeklyTimeRow');
       if (weeklyDaySel) weeklyDaySel.value = n.weeklyDay || 'Mon';
       if (weeklyTimeInput) weeklyTimeInput.value = n.weeklyTime || '08:00';
-      if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked);
+      if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked && serverPushAvailable);
     }
 
     function _wireNotifSettings() {
