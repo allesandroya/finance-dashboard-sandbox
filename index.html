@@ -4109,6 +4109,12 @@
         min-height: calc(100dvh - 64px);
         grid-template-rows: 1fr; /* composer is out of flow via fixed */
       }
+      /* Disable the global .view { animation: fadeIn 0.2s } for chat view
+         entirely. The fadeIn's translateY + opacity tween was perceived as
+         "kaku" on iOS PWA — the layered fade + translate during a frame
+         when the heavy chat-messages innerHTML is also reflowing produced
+         visible jank. Instant transition is the most reliable. */
+      #view-chat.view { animation: none !important; }
       #view-chat .chat-messages {
         /* Reserve space for composer + nav. CSS fallback is generous so the
            first paint already has enough room — JS chatLayoutSync only ever
