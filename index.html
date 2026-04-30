@@ -16379,70 +16379,50 @@ Use the user input carefully, but keep the output minimal and structured. Return
       }
 
       // Per-category toggles. Server-push toggles (daily/weekly) need a logged-in
-      // session to bind subscription to a userId; gray them out for anonymous users.
-      // ALSO: on production (inputin.app) the Cloudflare cron isn't reliably firing
-      // yet, so daily/weekly are forcibly marked "Coming soon" + disabled there.
-      // Sandbox keeps them functional so we can keep iterating on the issue.
+      // session to bind the subscription to a userId; gray them out for anonymous
+      // users. The earlier "Coming soon" gate on inputin.app has been lifted now
+      // that the Cloudflare cron is firing reliably (verified end-to-end on
+      // sandbox: notifications arrive within a few minutes of the configured
+      // time, daily cadence holds the next day).
       const linked = isLoggedIn();
-      const isProdHost = location.hostname === 'inputin.app' || location.hostname === 'www.inputin.app';
-      const serverPushAvailable = !isProdHost;
-      // Helper to ensure / remove the "Coming soon" pill on a row's title.
-      const setComingSoonPill = (row, on) => {
-        if (!row) return;
-        const title = row.querySelector('.notif-toggle-title');
-        if (!title) return;
-        const existing = title.querySelector('.notif-soon-pill');
-        if (on && !existing) {
-          const pill = document.createElement('span');
-          pill.className = 'notif-soon-pill';
-          pill.textContent = 'Coming soon';
-          title.appendChild(pill);
-        } else if (!on && existing) {
-          existing.remove();
-        }
-      };
+      // Defensive cleanup in case a stale "Coming soon" pill or class lingered
+      // from a previously-loaded build (cached HTML). Removes the pill and the
+      // row class so the toggle visually resets even before the loop reruns.
+      document.querySelectorAll('.notif-soon-pill').forEach((p) => p.remove());
       document.querySelectorAll('[data-notif-cat]').forEach((inp) => {
         const cat = inp.dataset.notifCat;
         const serverPush = inp.hasAttribute('data-server-push');
         const row = inp.closest('.notif-toggle-row');
-        if (serverPush && !serverPushAvailable) {
-          // Production: lock daily/weekly behind "Coming soon" until cron is healthy.
-          inp.disabled = true;
-          inp.checked = false;
-          if (row) row.classList.add('notif-toggle-soon');
-          setComingSoonPill(row, true);
-        } else if (serverPush && !linked) {
-          // Sandbox + anonymous: needs login to bind subscription.
+        if (serverPush && !linked) {
+          // Anonymous: subscription needs a userId to bind to.
           inp.disabled = true;
           inp.checked = !!n[cat];
           if (row) row.classList.add('notif-toggle-soon');
-          setComingSoonPill(row, false);
         } else {
           inp.disabled = false;
           inp.checked = !!n[cat];
           if (row) row.classList.remove('notif-toggle-soon');
-          setComingSoonPill(row, false);
         }
       });
       // Test push button: only useful once user is logged in + has a server-push
       // subscription (daily OR weekly on). Otherwise hide.
       const testRow = document.getElementById('notifTestRow');
       if (testRow) {
-        const showTest = effectivelyOn && linked && (n.daily || n.weekly) && serverPushAvailable;
+        const showTest = effectivelyOn && linked && (n.daily || n.weekly);
         testRow.style.display = showTest ? '' : 'none';
       }
-      // Time-picker rows: shown only when the parent toggle is checked AND
-      // server-push is actually available (hidden on prod since toggles locked).
+      // Time-picker rows: shown only when the parent toggle is checked AND the
+      // user is linked (server-push needs a session to bind).
       const dailyTimeInput = document.getElementById('notifDailyTime');
       const dailyRow = document.getElementById('notifDailyTimeRow');
       if (dailyTimeInput) dailyTimeInput.value = n.dailyTime || '21:00';
-      if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked && serverPushAvailable);
+      if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked);
       const weeklyDaySel = document.getElementById('notifWeeklyDay');
       const weeklyTimeInput = document.getElementById('notifWeeklyTime');
       const weeklyRow = document.getElementById('notifWeeklyTimeRow');
       if (weeklyDaySel) weeklyDaySel.value = n.weeklyDay || 'Mon';
       if (weeklyTimeInput) weeklyTimeInput.value = n.weeklyTime || '08:00';
-      if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked && serverPushAvailable);
+      if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked);
     }
 
     function _wireNotifSettings() {
