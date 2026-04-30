@@ -2364,6 +2364,35 @@
       max-width: 820px;
       width: 100%;
       margin: 0 auto;
+      position: relative;
+    }
+
+    /* Drag-and-drop overlay for desktop. Hidden by default; the JS toggles
+       .is-dragover on .chat-layout when the user drags a file over it. The
+       overlay sits above messages but below the composer, with a dashed
+       accent border so the drop target feels obvious. Pointer-events stay
+       off until active so messages stay clickable when no drag is in flight. */
+    .chat-dropzone {
+      position: absolute;
+      inset: 8px 4px 96px 4px;
+      border: 2px dashed var(--accent);
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      border-radius: 14px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 5;
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 14px;
+      text-align: center;
+      padding: 24px;
+    }
+    .chat-layout.is-dragover .chat-dropzone { display: flex; }
+    @media (max-width: 768px) {
+      /* Drag-and-drop is desktop-only — mobile uses the camera/paperclip. */
+      .chat-dropzone { display: none !important; }
     }
 
     .chat-messages {
@@ -5185,6 +5214,11 @@
             </div>
           </div>
           <div class="chat-layout" id="chatLayout">
+            <div class="chat-dropzone" id="chatDropzone">
+              📎 Lepas file di sini untuk lampirkan
+              <br/>
+              <span style="font-weight:400; font-size:12px; opacity:.8;">Foto / PDF (1 file), atau CSV / XLSX / JSON</span>
+            </div>
             <div class="chat-messages" id="chatMessages"></div>
             <div class="chat-composer">
               <div class="chat-chips" id="chatChips"></div>
@@ -5517,6 +5551,39 @@
                   <option value="">- Belum dipilih -</option>
                 </select>
                 <div class="hint" style="margin-top:6px;" id="defaultAccountHint">Aktifkan toggle di atas untuk memilih akun default.</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title mb-3">🤖 AI Chat Bot</div>
+              <div class="text-sm text-muted" style="margin-bottom:14px;">
+                Atur cara AI memperlakukan input yang berisi banyak transaksi sekaligus. Pilihan untuk teks dan untuk foto/PDF dipisah karena biasanya kebutuhannya beda.
+              </div>
+              <div class="stack-sm">
+                <div>
+                  <div style="font-weight:600; margin-bottom:6px;">Multi-transaksi via TEKS</div>
+                  <div class="text-sm text-muted" style="margin-bottom:8px;">
+                    Contoh: <em>"makan 25rb, bensin 50rb, kopi 20rb"</em>
+                  </div>
+                  <select class="select" id="aiMultiTextSelect">
+                    <option value="split">Pisah jadi beberapa kartu (1 kartu per transaksi)</option>
+                    <option value="summary">Gabung jadi 1 kartu dengan grand total</option>
+                  </select>
+                </div>
+                <hr style="border: none; border-top: 1px solid var(--border); margin: 8px 0;" />
+                <div>
+                  <div style="font-weight:600; margin-bottom:6px;">Multi-transaksi via FOTO / PDF</div>
+                  <div class="text-sm text-muted" style="margin-bottom:8px;">
+                    Contoh: struk yang punya banyak item (Bulgogi, Sundubu, Es Kelapa, …) atau invoice multi-line.
+                  </div>
+                  <select class="select" id="aiMultiImageSelect">
+                    <option value="summary">Ringkas jadi 1 kartu dengan grand total</option>
+                    <option value="split">Pisah jadi beberapa kartu (1 kartu per item)</option>
+                  </select>
+                </div>
+                <div class="hint" style="margin-top:6px;">
+                  💡 Foto/PDF dibatasi <strong>1 file</strong> per kirim biar OCR cepat dan tidak kena rate limit.
+                </div>
               </div>
             </div>
 
@@ -5963,6 +6030,16 @@
         onboardingDone: false,
         defaultAccountEnabled: false,
         defaultAccount: '',
+        // Multi-transaction handling for chat AI. Independent toggles for
+        // text input vs. image/file (OCR) input because the trade-offs differ:
+        //   text  — splitting "makan 25rb, bensin 50rb" into 2 cards is usually
+        //           what the user wants
+        //   image — a single receipt with line items usually wants the grand
+        //           total (one card), not one card per line item
+        // Values: 'split' = one card per detected transaction
+        //         'summary' = one card with the grand total
+        aiMultiText:  'split',
+        aiMultiImage: 'summary',
         // Notification prefs. master must be true AND Notification.permission
         // === 'granted' for any notif to fire. Per-category toggles let users
         // mute specific events. Server-push items (daily, weekly) are stored
@@ -6176,21 +6253,39 @@
 
     // ============ AMOUNT PARSER (port of lib/amount-parser.ts) ============
     function parseAmount(input) {
-      const cleaned = String(input).toLowerCase().replace(/[,.\s]/g, '');
-      const patterns = [
-        [/(\d+(?:\.\d+)?)(?:jt|juta)/, 1_000_000],
-        [/(\d+(?:\.\d+)?)(?:rb|ribu|k)\b/, 1_000],
-        [/(\d+(?:\.\d+)?)(?:rb|ribu|k)/, 1_000],
-        [/(?:rp\.?\s*)(\d+)/, 1],
-        [/^(\d+)$/, 1],
+      // Scan the original string (not the stripped one) so word boundaries
+      // around "rb"/"k"/"jt" stay meaningful for multi-amount inputs like
+      // "makan 25rb, bensin 50rb, kopi 20rb" — we want the FIRST amount,
+      // not the last (which is what an anchor on the stripped string picks).
+      const src = String(input).toLowerCase();
+      // Order matters: jt/juta before rb/ribu/k so "1.5jt" doesn't get
+      // pre-empted by a partial match.
+      const unitPatterns = [
+        [/(\d+(?:[.,]\d+)?)\s*(?:jt|juta)\b/g, 1_000_000],
+        [/(\d+(?:[.,]\d+)?)\s*(?:rb|ribu|k)\b/g, 1_000],
+        [/rp\.?\s*(\d+(?:[.,]\d{3})*)/g, 1],
       ];
-      for (const [re, mult] of patterns) {
-        const m = cleaned.match(re);
-        if (m) return Math.round(parseFloat(m[1]) * mult);
+      let best = null;
+      for (const [re, mult] of unitPatterns) {
+        const m = re.exec(src);
+        if (m) {
+          // Normalize "1,5" or "1.5" to 1.5; strip group separators "1.500" -> "1500".
+          const numStr = m[1].includes(',') ? m[1].replace(',', '.') : m[1];
+          // If there are multiple dots it's a thousand-separator (id-ID) — strip them.
+          const cleanNum = numStr.split('.').length > 2 ? numStr.replace(/\./g, '') : numStr;
+          const val = Math.round(parseFloat(cleanNum) * mult);
+          if (val > 0) { best = val; break; }
+        }
       }
-      // Also try finding just the largest number
-      const nums = String(input).replace(/\./g, '').match(/\d{3,}/g);
-      if (nums) return parseInt(nums.sort((a, b) => b.length - a.length)[0], 10);
+      if (best != null) return best;
+      // Fallback: bare digits — pick the FIRST number with at least 3 digits.
+      // Strips id-ID thousand dots first ("123.456" -> "123456").
+      const stripped = src.replace(/(\d)\.(\d{3})/g, '$1$2');
+      const m = stripped.match(/\d{3,}/);
+      if (m) return parseInt(m[0], 10);
+      // Last resort: a single tiny number ("5" alone).
+      const m2 = stripped.match(/^\s*(\d+)\s*$/);
+      if (m2) return parseInt(m2[1], 10);
       return null;
     }
 
@@ -6677,6 +6772,17 @@
         'Value Display': formatRupiah(amount || 0),
         _method: method,
       };
+      // Detect account name from text (parity with finalizeAIResponse) so
+      // fallback rules also tag "dari BCA", "pake gopay", etc. Only relevant
+      // for Income / Expense — Transfer needs from/to and the rules path
+      // doesn't synthesize those, so we leave Transfer-style inputs to AI.
+      const lowerInput = String(text).toLowerCase();
+      const acctHit = getAccountCatalog().find((a) => {
+        const n = a.name.toLowerCase();
+        if (n.length <= 2) return new RegExp(`\\b${n}\\b`).test(lowerInput);
+        return lowerInput.includes(n);
+      });
+      if (acctHit) out.account = acctHit.name;
       applyDefaultAccount(out);
       return out;
     }
@@ -6693,10 +6799,23 @@
     // AI requests go to the Cloudflare Worker (configured in CONFIG.WORKER_URL).
     // The Worker holds the real API key as a secret (wrangler secret put GEMINI_API_KEY etc.)
     // If the Worker URL is not configured or unreachable, we fall back to rules-based parsing.
-    async function parseWithAI(text, images) {
+    // Returns an array of parsed transaction objects (length >= 1). When the
+    // user's setting is 'summary' or the input is single, the array has one
+    // entry — same shape callers used to get from a single-object return.
+    // When 'split' and the AI detects multiple transactions, the array has
+    // one entry per detected transaction.
+    //
+    //   mode  - 'split' | 'summary'  (per-channel, see state.settings.aiMulti*)
+    //   text  - the user's typed message (may include OCR'd image text appended by worker)
+    //   images - optional array of {mime, base64, name} for OCR
+    async function parseWithAI(text, images, mode) {
+      mode = (mode === 'split') ? 'split' : 'summary';
       if (!CONFIG.WORKER_URL || CONFIG.WORKER_URL.includes('REPLACE_ME')) {
         // Rules-based fallback can't read images; best we can do locally.
-        return parseWithRules(text);
+        // It only ever produces ONE transaction, so wrap in array for the
+        // unified consumer.
+        const r = parseWithRules(text);
+        return [r];
       }
 
       const categoryList = state.categories
@@ -6739,8 +6858,52 @@
         ? `\n\nUser's accounts (use one of these EXACT names if the user mentions a payment source OR a savings goal - e.g. "pake gopay", "via bca", "dari ovo", "nabung ke emergency fund"):\n${accountCatalog.map((a) => `- ${a.name} (${a.type})`).join('\n')}`
         : '';
 
-      // System prompt ported from n8n "Cash Flow Bot" (AI Agent node)
-      const systemPrompt = `You extract ONE financial transaction from user input into structured JSON.
+      // System prompt ported from n8n "Cash Flow Bot" (AI Agent node).
+      // Multi-tx mode is controlled by the per-channel `mode` arg:
+      //   summary - emit one consolidated transaction (default for receipts)
+      //   split   - emit an array, one entry per detected transaction
+      const isSplit = mode === 'split';
+      const headline = isSplit
+        ? `You extract one or more financial transactions from user input into structured JSON. Multiple transactions in one input must each be returned as a separate object inside a "transactions" array.`
+        : `You extract ONE financial transaction from user input into structured JSON. If the input mentions multiple amounts, consolidate them into a single transaction whose Value is the GRAND TOTAL.`;
+      const extractionRule = isSplit
+        ? `- The user may describe multiple distinct transactions in one message (e.g. "makan 25rb, bensin 50rb, kopi 20rb"). Detect every distinct transaction and return one object per transaction inside the "transactions" array.
+- For a single receipt that lists many line items but ONE final total (e.g. dine-in bill with subtotal + grand total), return ONE transaction with Value = grand total. Do NOT split a single receipt into per-item rows unless the user clearly asked for that.
+- Each detected transaction is independent — categorize, type, and account-tag each one separately.`
+        : `- Extract only ONE main transaction.
+- If the input contains multiple amounts (e.g. "makan 25rb, bensin 50rb, kopi 20rb" or a receipt with line items), SUM them into a single Value (grand total) and pick a Transaction Name that summarizes the group (e.g. "Belanja Harian", "Makan Siang Group", or the merchant name from a receipt).`;
+      const outputSchemaBlock = isSplit
+        ? `Output schema (strict — wrap in "transactions" array even if only one):
+{
+  "transactions": [
+    {
+      "Date": "YYYY-MM-DD",
+      "Type": "Income" | "Expense" | "Transfer",
+      "Transaction Name": string (min 1 char),
+      "Transaction Category": string (min 1 char, NEVER Income/Expense/Transfer),
+      "Sub-Category": string (min 1 char),
+      "Value": integer (rupiah, >= 0, no symbols),
+      "Value Display": string (pattern "Rp. N,NNN"),
+      "account":     string (OPTIONAL - only for Income/Expense; exact name from User's accounts list),
+      "fromAccount": string (OPTIONAL - only for Transfer; source account, may be ""),
+      "toAccount":   string (OPTIONAL - only for Transfer; destination account)
+    }
+  ]
+}`
+        : `Output schema (strict):
+{
+  "Date": "YYYY-MM-DD",
+  "Type": "Income" | "Expense" | "Transfer",
+  "Transaction Name": string (min 1 char),
+  "Transaction Category": string (min 1 char, NEVER Income/Expense/Transfer),
+  "Sub-Category": string (min 1 char),
+  "Value": integer (rupiah, >= 0, no symbols),
+  "Value Display": string (pattern "Rp. N,NNN"),
+  "account":     string (OPTIONAL - only for Income/Expense; exact name from User's accounts list),
+  "fromAccount": string (OPTIONAL - only for Transfer; source account, may be ""),
+  "toAccount":   string (OPTIONAL - only for Transfer; destination account)
+}`;
+      const systemPrompt = `${headline}
 
 Priority order:
 1. Use dictionary and merchant reference if provided (highest priority for naming/categorization)
@@ -6759,7 +6922,7 @@ CRITICAL RULE - Transaction Category:
 
 Rules:
 - Return VALID JSON only. No markdown fences, no commentary.
-- Extract only ONE main transaction.
+${extractionRule}
 - Prefer the final payable total, not item quantity, code, subtotal, or tax-only values.
 - Date must be YYYY-MM-DD.
 - If no clear date is found, use today's date in Asia/Jakarta timezone: ${todayJakarta}
@@ -6830,19 +6993,7 @@ Fallback rules:
 - Keep Transaction Name concise, clear, and Title-Cased.
 - Do not invent unsupported details.
 
-Output schema (strict):
-{
-  "Date": "YYYY-MM-DD",
-  "Type": "Income" | "Expense" | "Transfer",
-  "Transaction Name": string (min 1 char),
-  "Transaction Category": string (min 1 char, NEVER Income/Expense/Transfer),
-  "Sub-Category": string (min 1 char),
-  "Value": integer (rupiah, >= 0, no symbols),
-  "Value Display": string (pattern "Rp. N,NNN"),
-  "account":     string (OPTIONAL - only for Income/Expense; exact name from User's accounts list),
-  "fromAccount": string (OPTIONAL - only for Transfer; source account, may be ""),
-  "toAccount":   string (OPTIONAL - only for Transfer; destination account)
-}
+${outputSchemaBlock}
 
 Use the user input carefully, but keep the output minimal and structured. Return JSON ONLY.`;
 
@@ -6885,13 +7036,28 @@ Use the user input carefully, but keep the output minimal and structured. Return
         // Some earlier worker versions returned { parsed: ... } - support both.
         const raw = data.content ?? data.parsed;
         if (raw == null) throw new Error('Worker response missing content');
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        parsed._method = 'worker';
-        return finalizeAIResponse(parsed, text);
+        const parsedRoot = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        // Unwrap split-mode array vs. summary-mode object. Be lenient — some
+        // models return a bare array even on summary mode, or wrap a single
+        // object in transactions[]. Always normalize to a non-empty array.
+        let arr = [];
+        if (Array.isArray(parsedRoot)) {
+          arr = parsedRoot;
+        } else if (parsedRoot && Array.isArray(parsedRoot.transactions)) {
+          arr = parsedRoot.transactions;
+        } else if (parsedRoot && typeof parsedRoot === 'object') {
+          arr = [parsedRoot];
+        }
+        if (!arr.length) throw new Error('Worker returned empty transactions');
+        const finalized = arr.map((p) => {
+          p._method = 'worker';
+          return finalizeAIResponse(p, text);
+        });
+        return finalized;
       } catch (err) {
         console.error(err);
         toast(`AI gagal: ${err.message}. Fallback ke rules-based.`, 'error');
-        return parseWithRules(text);
+        return [parseWithRules(text)];
       }
     }
 
@@ -10697,6 +10863,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
     const MAX_IMAGE_DIM   = 1280;   // longest-side cap after compression
     const IMG_JPEG_QUALITY = 0.82;
     const MAX_ATTACHMENTS = 5;
+    // Each image/PDF triggers a separate Mistral OCR call before the chat
+    // model runs, so allowing 2+ multiplies upstream cost AND multiplies the
+    // chance of hitting Mistral's per-minute rate limit. Cap OCR-heavy
+    // attachments at one per send. CSV / XLSX / JSON / TXT are parsed
+    // locally and don't count against this limit.
+    const MAX_OCR_ATTACHMENTS = 1;
+    function _countOcrAttachments(list) {
+      return (list || []).filter((a) => a.kind === 'image' || a.kind === 'pdf').length;
+    }
 
     function _classifyFile(file) {
       const m = (file.type || '').toLowerCase();
@@ -10749,12 +10924,22 @@ Use the user input carefully, but keep the output minimal and structured. Return
     async function handleChatAttach(fileList) {
       const files = Array.from(fileList || []);
       if (!files.length) return;
+      let ocrWarned = false;
       for (const file of files) {
         if (_chatAttachments.length >= MAX_ATTACHMENTS) {
           toast(`Maksimal ${MAX_ATTACHMENTS} lampiran sekali kirim`, 'error');
           break;
         }
         const kind = _classifyFile(file);
+        // Hard cap: only one image/PDF per send (each one costs an OCR call).
+        if ((kind === 'image' || kind === 'pdf')
+            && _countOcrAttachments(_chatAttachments) >= MAX_OCR_ATTACHMENTS) {
+          if (!ocrWarned) {
+            toast('Foto/PDF dibatasi 1 file per kirim biar OCR cepat & hemat. Hapus dulu yang ada.', 'warning');
+            ocrWarned = true;
+          }
+          continue;
+        }
         const rec = {
           id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
           name: file.name || 'untitled',
@@ -10923,10 +11108,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
           effectiveText += `\n\n[Attached file: ${a.name}]\n${content.slice(0, 4000)}`;
         }
 
-        const parsed = await parseWithAI(effectiveText || '(kosong - lihat lampiran)', payloadImages);
+        // Pick the multi-tx mode that matches the input channel. Foto/PDF
+        // present → image setting; else (pure text) → text setting.
+        const channelMode = (payloadImages.length > 0)
+          ? (state.settings?.aiMultiImage || 'summary')
+          : (state.settings?.aiMultiText || 'split');
+        const parsedList = await parseWithAI(effectiveText || '(kosong - lihat lampiran)', payloadImages, channelMode);
         state.messages = state.messages.filter((m) => m._typing !== typingId);
 
-        if (!parsed.Value || parsed.Value <= 0) {
+        // Drop entries with no usable amount; if nothing remains, ask user
+        // for a clearer input (mirrors the original single-tx behavior).
+        const valid = (Array.isArray(parsedList) ? parsedList : [parsedList])
+          .filter((p) => p && Number(p.Value) > 0);
+        if (!valid.length) {
           state.messages.push({
             role: 'bot',
             text: payloadImages.length
@@ -10939,14 +11133,25 @@ Use the user input carefully, but keep the output minimal and structured. Return
           return;
         }
 
-        const id = 'txn-' + Date.now();
-        state.messages.push({
-          role: 'txn',
-          id,
-          text: `Oke, ini aku tangkap jadi ${parsed.Type === 'Income' ? 'pemasukan' : parsed.Type === 'Transfer' ? 'transfer antar-akun' : 'pengeluaran'}:`,
-          txn: parsed,
-          ts: Date.now(),
-          saved: false,
+        // Render one card per detected transaction. The renderer already
+        // handles role:'txn' messages — we just push N of them. Use a header
+        // line on the first card so the user sees the count when there's > 1.
+        const baseTs = Date.now();
+        valid.forEach((p, idx) => {
+          const cardLabel = p.Type === 'Income' ? 'pemasukan'
+                          : p.Type === 'Transfer' ? 'transfer antar-akun'
+                          : 'pengeluaran';
+          const headerText = (valid.length > 1)
+            ? `Transaksi ${idx + 1} dari ${valid.length} (${cardLabel}):`
+            : `Oke, ini aku tangkap jadi ${cardLabel}:`;
+          state.messages.push({
+            role: 'txn',
+            id: 'txn-' + (baseTs + idx) + '-' + Math.random().toString(36).slice(2, 6),
+            text: headerText,
+            txn: p,
+            ts: baseTs + idx,
+            saved: false,
+          });
         });
         saveState();
         renderChat();
@@ -13688,6 +13893,52 @@ Use the user input carefully, but keep the output minimal and structured. Return
         removeChatAttachment(btn.dataset.attRemove);
       });
 
+      // Desktop drag-and-drop: drop a file anywhere over the chat layout to
+      // attach it. Uses a counter to handle dragenter/dragleave on child
+      // elements (children fire leave when the pointer crosses their edge,
+      // even though it's still over the parent — without the counter the
+      // overlay would flicker). Mobile users keep the paperclip + camera
+      // path; the @media query in CSS hides the overlay there.
+      const chatLayoutEl = document.getElementById('chatLayout');
+      if (chatLayoutEl) {
+        let _dragDepth = 0;
+        const hasFiles = (e) => {
+          const dt = e.dataTransfer;
+          if (!dt) return false;
+          const types = dt.types;
+          if (!types) return false;
+          // types is a DOMStringList (Safari) or array; both support indexOf-style.
+          for (let i = 0; i < types.length; i++) {
+            if (types[i] === 'Files') return true;
+          }
+          return false;
+        };
+        chatLayoutEl.addEventListener('dragenter', (e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          _dragDepth++;
+          chatLayoutEl.classList.add('is-dragover');
+        });
+        chatLayoutEl.addEventListener('dragover', (e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        });
+        chatLayoutEl.addEventListener('dragleave', (e) => {
+          if (!hasFiles(e)) return;
+          _dragDepth = Math.max(0, _dragDepth - 1);
+          if (_dragDepth === 0) chatLayoutEl.classList.remove('is-dragover');
+        });
+        chatLayoutEl.addEventListener('drop', (e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          _dragDepth = 0;
+          chatLayoutEl.classList.remove('is-dragover');
+          const files = e.dataTransfer.files;
+          if (files && files.length) handleChatAttach(files);
+        });
+      }
+
       // Chat txn actions (event delegation)
       document.getElementById('chatMessages').addEventListener('click', (e) => {
         const s = e.target.closest('[data-confirm-save]');
@@ -14404,6 +14655,32 @@ Use the user input carefully, but keep the output minimal and structured. Return
           saveState();
           renderDefaultAccountCard();
           if (state.settings.defaultAccount) toast(`Default account: ${state.settings.defaultAccount} ✓`);
+        });
+      }
+
+      // AI Chat Bot (Settings → 🤖 AI Chat Bot)
+      // Two independent select controls — one for plain text, one for image/PDF.
+      // Stored as 'split' or 'summary'; consumed by handleSend / parseWithAI.
+      const aiMultiText  = document.getElementById('aiMultiTextSelect');
+      const aiMultiImage = document.getElementById('aiMultiImageSelect');
+      if (aiMultiText) {
+        aiMultiText.value = state.settings.aiMultiText || 'split';
+        aiMultiText.addEventListener('change', (e) => {
+          state.settings.aiMultiText = e.target.value === 'summary' ? 'summary' : 'split';
+          saveState();
+          toast(state.settings.aiMultiText === 'split'
+            ? 'Multi-tx teks: pisah per transaksi ✓'
+            : 'Multi-tx teks: ringkas grand total ✓');
+        });
+      }
+      if (aiMultiImage) {
+        aiMultiImage.value = state.settings.aiMultiImage || 'summary';
+        aiMultiImage.addEventListener('change', (e) => {
+          state.settings.aiMultiImage = e.target.value === 'split' ? 'split' : 'summary';
+          saveState();
+          toast(state.settings.aiMultiImage === 'split'
+            ? 'Multi-tx foto/PDF: pisah per item ✓'
+            : 'Multi-tx foto/PDF: ringkas grand total ✓');
         });
       }
 
