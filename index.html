@@ -5647,7 +5647,7 @@
               </div>
             </div>
 
-            <div class="card">
+            <div class="card" id="settingsAiCard">
               <div class="card-title mb-3">🤖 AI Chat Bot</div>
               <div class="text-sm text-muted" style="margin-bottom:14px;">
                 Atur cara AI memperlakukan input yang berisi banyak transaksi sekaligus. Pilihan untuk teks dan untuk foto/PDF dipisah karena biasanya kebutuhannya beda.
@@ -5918,7 +5918,7 @@
                 <div class="row-between" style="flex-wrap:wrap; gap:10px;">
                   <div>
                     <div style="font-weight:600;">⚙️ Settings Tour</div>
-                    <div class="text-sm text-muted">Demo Mode, Sync, Akun, Default Account, Backup, dan Theme.</div>
+                    <div class="text-sm text-muted">Akun, Demo Mode, Saldo Awal, Default Account, AI Chat Bot, Backup, dan Theme.</div>
                   </div>
                   <button class="btn btn-secondary btn-sm" data-replay-tour="settings">Mulai</button>
                 </div>
@@ -15575,16 +15575,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
       },
 
       settings: {
-        key: 'tour_v2_settings_done',
+        // Bumped key v2 → v3 because the step list changed (new AI Chat Bot
+        // card). Old completers will see the tour again once, then it stops.
+        key: 'tour_v3_settings_done',
         label: 'Settings Tour',
-        desc: 'Deep-dive Akun, Demo Mode, Saldo Awal, Default Account, Data, dan Theme.',
+        desc: 'Deep-dive Akun, Demo Mode, Saldo Awal, Default Account, AI Chat Bot, Data, dan Theme.',
         startView: 'settings',
         steps: [
           {
             id: 'settings-welcome',
             target: null,
             title: 'Selamat datang di Settings ⚙️',
-            body: 'Di sini kamu bisa atur preferensi aplikasi: akun & sync cloud, data demo, saldo awal, akun default, backup, dan tema. Yuk kita lihat satu-satu.',
+            body: 'Di sini kamu bisa atur preferensi aplikasi: akun & sync cloud, data demo, saldo awal, akun default, AI chat bot, backup, dan tema. Yuk kita lihat satu-satu.',
           },
           {
             id: 'settings-akun',
@@ -15596,7 +15598,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             id: 'settings-demo',
             target: '#toggleDemoMode',
             title: '🎭 Demo Data Mode',
-            body: 'Toggle ini akan generate 2 tahun data demo lengkap supaya kamu bisa coba semua fitur tanpa input manual. Data asli kamu tetap aman.',
+            body: 'Toggle ini akan generate 2 tahun data demo lengkap supaya kamu bisa coba semua fitur tanpa input manual. Data asli kamu tetap aman, dan ada banner pengingat di atas saat demo aktif.',
           },
           {
             id: 'settings-accounts',
@@ -15609,6 +15611,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
             target: '#toggleDefaultAccount',
             title: '🎯 Default Account',
             body: 'Aktifkan toggle ini untuk pilih akun default - tiap kamu input transaksi baru, akun ini auto-kepilih, jadi kamu nggak perlu pilih ulang setiap kali.',
+          },
+          {
+            id: 'settings-ai',
+            target: '#settingsAiCard',
+            title: '🤖 AI Chat Bot',
+            body: 'Atur cara Chat Bot menangani input multi-transaksi. Untuk teks (misal "makan 25rb, bensin 50rb"), default-nya pisah jadi beberapa kartu. Untuk foto/PDF (struk, invoice), default-nya ringkas jadi 1 kartu grand total - bisa ganti ke "pisah per item" kalau mau.',
           },
           {
             id: 'settings-data',
@@ -15653,13 +15661,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
             id: 'chat-attach',
             target: '#btnChatAttach',
             title: '📎 Attach file',
-            body: 'Punya struk PDF, screenshot transfer, atau file CSV/XLSX? Tap di sini untuk upload - bot bisa baca dan extract transaksinya otomatis.',
+            body: 'Tap di sini untuk upload struk PDF, foto, atau file CSV/XLSX/JSON. Foto/PDF dibatasi 1 file per kirim biar OCR cepat & hemat; CSV/XLSX/JSON boleh banyak. Di desktop kamu juga bisa drag-and-drop file langsung ke area chat.',
           },
           {
             id: 'chat-camera',
             target: '#btnChatCamera',
             title: '📷 Foto langsung',
-            body: 'Di HP, tombol kamera buka kamera native - foto struk belanja langsung, bot otomatis catat tiap item-nya. (Khusus mobile.)',
+            body: 'Di HP, tombol kamera buka kamera native - foto struk belanja langsung. Default-nya bot ringkas jadi 1 kartu grand total; kalau mau pisah per item, ubah di Settings → AI Chat Bot. (Khusus mobile.)',
           },
           {
             id: 'chat-chips',
