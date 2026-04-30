@@ -349,6 +349,49 @@
       position: sticky; top: 0; z-index: 10;
     }
 
+    /* Persistent banner shown while state.settings.demoMode is on. Sits above
+       the topbar so it's always in view; clicking the "Matikan" pill takes
+       the user straight to the toggle in Settings. Hidden via the [hidden]
+       attribute when demo mode is off so it adds zero space. */
+    .demo-banner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 8px 16px;
+      background: linear-gradient(90deg, #FEF3C7, #FDE68A);
+      color: #78350F;
+      font-size: 13px;
+      font-weight: 600;
+      border-bottom: 1px solid #FCD34D;
+      position: sticky;
+      top: 0;
+      z-index: 11; /* above .topbar (10) so it stays visible */
+      flex-wrap: wrap;
+      text-align: center;
+    }
+    .demo-banner[hidden] { display: none; }
+    .demo-banner-icon { font-size: 15px; }
+    .demo-banner-action {
+      background: rgba(120, 53, 15, 0.12);
+      color: #78350F;
+      border: 1px solid rgba(120, 53, 15, 0.25);
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 120ms;
+    }
+    .demo-banner-action:hover { background: rgba(120, 53, 15, 0.2); }
+    /* When demo banner is showing, the sticky topbar slides under it cleanly
+       because both are position:sticky in the same scroll container — they
+       stack one after the other naturally. */
+    @media (max-width: 480px) {
+      .demo-banner { padding: 6px 10px; font-size: 11.5px; gap: 8px; }
+      .demo-banner-action { padding: 3px 9px; font-size: 11px; }
+    }
+
     .topbar-title {
       font-family: var(--font-display);
       font-weight: 600;
@@ -4788,6 +4831,14 @@
     </aside>
 
     <main class="main">
+      <!-- Demo-mode reminder banner. Hidden when demoMode is off; renderDemoBanner()
+           toggles the [hidden] attribute. The "Matikan" pill jumps to the Demo
+           toggle in Settings so the user can flip it without hunting around. -->
+      <div class="demo-banner" id="demoBanner" hidden>
+        <span class="demo-banner-icon">🎭</span>
+        <span>Kamu sedang di <strong>Demo Mode</strong> — data ini bukan transaksi asli kamu.</span>
+        <button type="button" class="demo-banner-action" id="demoBannerOff">Matikan</button>
+      </div>
       <header class="topbar">
         <div class="row">
           <button class="btn-icon mobile-menu-btn" id="btnMobileMenu">
@@ -13532,6 +13583,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (navAdmin) navAdmin.style.display = admin ? '' : 'none';
       if (navAdminLbl) navAdminLbl.style.display = admin ? '' : 'none';
     }
+    // Toggle the demo-mode reminder banner. Called on boot and after every
+    // demo-toggle interaction. The banner sits above .topbar and is sticky
+    // so it travels with the page as the user scrolls.
+    function renderDemoBanner() {
+      const banner = document.getElementById('demoBanner');
+      if (!banner) return;
+      const on = !!(state.settings && state.settings.demoMode);
+      banner.hidden = !on;
+    }
     // Called by the auth endpoints after a successful verify. Persists the
     // session token + user identity; does not make additional network calls.
     function doLogin({ email, name, provider, userId, plan, sessionToken }) {
@@ -14817,6 +14877,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             loadDemo();
             state.settings.demoMode = true;
             saveState();
+            renderDemoBanner();
             toast('Demo mode ON ✓ - reload untuk lihat data…');
             setTimeout(() => location.reload(), 600);
           } else {
@@ -14827,11 +14888,31 @@ Use the user input carefully, but keep the output minimal and structured. Return
             purgeDemoData();
             state.settings.demoMode = false;
             saveState();
+            renderDemoBanner();
             // Clear demo tour flag so re-enabling demo mode shows the tour again.
             try { tourClearCompleted('demo'); } catch {}
             toast('Demo mode OFF ✓ - reload…');
             setTimeout(() => location.reload(), 500);
           }
+        });
+      }
+
+      // "Matikan" pill on the demo banner — jumps to Settings and scrolls
+      // to the demo toggle so the user can flip it without hunting around.
+      const demoBannerOff = document.getElementById('demoBannerOff');
+      if (demoBannerOff) {
+        demoBannerOff.addEventListener('click', () => {
+          navigateTo('settings');
+          // Wait one frame for Settings to render, then scroll the toggle
+          // into view. block:'center' lands it mid-viewport on desktop.
+          setTimeout(() => {
+            const t = document.getElementById('toggleDemoMode');
+            if (t) {
+              t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              // Subtle focus highlight so the user spots the toggle quickly.
+              try { t.focus({ preventScroll: true }); } catch {}
+            }
+          }, 80);
         });
       }
 
@@ -16437,6 +16518,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       wireMobileNavScroll();
       wireDetailBreakpointSync();
       applyAdminMode();
+      renderDemoBanner();
       _tourWireOnce();
       _wirePwaInstall();
       _wireNotifSettings();
@@ -16485,6 +16567,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         loadDemo();
         state.settings.demoMode = true;
         saveState();
+        renderDemoBanner();
       }
 
       showApp();
