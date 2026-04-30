@@ -6765,6 +6765,37 @@
         return { intent: 'summary', period, kind, raw };
       }
 
+      // --- Out-of-scope signals: things the bot CAN'T do today.
+      // Catches the "kamu pikir aku ChatGPT" misuse so the bot can answer
+      // relevantly instead of trying to parse the message as a transaction
+      // and producing nonsense. We bail out BEFORE the hasAmount check
+      // because "sisihin 25% dari 50jt" technically contains an amount
+      // (50jt) — but the user's actual intent is a calculation, not a
+      // transaction record.
+      //
+      // Two trigger patterns:
+      //   1) Percent math + a "command" verb (sisihin / tolong / buat / untuk).
+      //      Catches "sisihin 25%", "tolong hitung 25% dari …", "buat tabungan 25%".
+      //      Bare percentages like "Diskon 25%" or "potongan 5% gaji" don't
+      //      trigger because they lack the imperative verb.
+      //   2) Conversational references — phrases that point to a previous
+      //      message ("sisa dari yang tadi", "dikurangin yang tadi",
+      //      "berapa sisanya", "sisa dr yg sudah ditabung"). The bot has no
+      //      memory across messages, so this will silently fail otherwise.
+      const percentMathRe = /(?:\b\d+\s*%|\b\d+\s*persen\b)/i;
+      const setAsideVerbRe = /\b(sisihin|sisain|sisihkan|simpenin|simpanin|simpankan)\b/i;
+      const conversationalRefRe = /\b(yang\s*tadi|yg\s*tadi|yang\s*sebelumnya|yg\s*sebelumnya|yang\s*sudah\s*(ditabung|disimpan|dicatat|disisihkan|dibayar)|sisa\s*(dari|dr|yg|yang)\s*(yang|yg|kemarin|tadi|sebelumnya|sudah)|dikurangin\s*(yang|yg|tadi|makan|aku)|tolong\s*hitung|berapa\s*sisanya|sisanya\s*(berapa|gimana))\b/i;
+      const isPercentMath = percentMathRe.test(raw)
+        && (setAsideVerbRe.test(raw) || /\b(tolong|buat|untuk|sisanya)\b/.test(raw));
+      const isConversational = conversationalRefRe.test(raw);
+      if (isPercentMath || isConversational) {
+        return {
+          intent: 'out_of_scope',
+          raw,
+          reason: isPercentMath ? 'percent_math' : 'conversational_ref',
+        };
+      }
+
       // If a clear amount is present, let the normal transaction path handle it.
       if (hasAmount) return { intent: 'transaction' };
 
@@ -11274,15 +11305,35 @@ Use the user input carefully, but keep the output minimal and structured. Return
       }
 
       // --- Route 1.5: text-only intent classification ---
-      // Three-way branch for pure-text messages:
-      //   summary       → local summary (no Worker call, no token spend)
-      //   needs_amount  → bot asks for clarification (user likely forgot amount)
-      //   ai            → fall through to the AI/rules transaction parser
+      // Four-way branch for pure-text messages:
+      //   summary        → local summary (no Worker call, no token spend)
+      //   out_of_scope   → bot replies with relevant guidance, no AI call
+      //                    (avoids parsing "sisihin 25% dari 50jt" as a wrong
+      //                    "Gaji 50jt" transaction)
+      //   needs_amount   → bot asks for clarification (user likely forgot amount)
+      //   ai             → fall through to the AI/rules transaction parser
       if (text && !images.length && !pdfs.length && !spreadsheets.length && !textFiles.length) {
         const cls = classifyChatText(text);
         if (cls.intent === 'summary') {
           const summary = generateLocalSummary(cls);
           state.messages.push({ role: 'bot', text: summary, ts: Date.now() });
+          saveState();
+          renderChat();
+          return;
+        }
+        if (cls.intent === 'out_of_scope') {
+          // Reason-specific copy. Lead with a concrete workaround (rephrase
+          // example) instead of bluntly stating limits — keeps the tone
+          // helpful rather than apologetic.
+          const isPercent = cls.reason === 'percent_math';
+          const body = isPercent
+            ? `Buat catat hasil persentase, hitung dulu nominalnya lalu kirim transaksi-nya. Misal kalau gaji 50jt mau disisihin 25%:\n\n• Pesan 1: "gaji bulanan 50jt"\n• Pesan 2: "nabung emergency fund 12.5jt pake bca"\n\nAtau gabung sekaligus pakai koma:\n• "gaji 50jt, nabung emergency 12.5jt"\n\nMau pisah/ringkas multi-transaksi, atur di Settings → AI Chat Bot.`
+            : `Setiap pesan aku proses sendiri-sendiri tanpa baca pesan sebelumnya. Tulis nominal langsung di pesan ini ya, contoh:\n\n• "makan mie ayam 38rb"\n• "transfer bca ke gopay 200rb"\n\nKalau mau lihat saldo / sisa, ketik: "berapa sisa uang minggu ini" atau "ringkasan bulan ini".`;
+          state.messages.push({
+            role: 'bot',
+            text: body,
+            ts: Date.now(),
+          });
           saveState();
           renderChat();
           return;
