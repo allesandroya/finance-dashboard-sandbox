@@ -415,6 +415,42 @@
 
     .mobile-menu-btn { display: none; }
 
+    /* Desktop / tablet sidebar collapse toggle. Lives next to .mobile-menu-btn
+       in the topbar but only appears on viewports ≥769px (the mobile button
+       takes over below that breakpoint). When .app.is-sidebar-collapsed is
+       set, the grid's first column shrinks to 0 and .sidebar slides off. */
+    .desktop-sidebar-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 120ms, color 120ms, border-color 120ms;
+    }
+    .desktop-sidebar-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .desktop-sidebar-btn:active { transform: scale(0.96); }
+    @media (min-width: 769px) {
+      .desktop-sidebar-btn { display: inline-flex; }
+    }
+    .app.is-sidebar-collapsed { grid-template-columns: 0 1fr; }
+    .app.is-sidebar-collapsed .sidebar {
+      transform: translateX(-100%);
+      transition: transform 0.2s ease, width 0.2s ease;
+      width: 0;
+      padding-left: 0;
+      padding-right: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .app:not(.is-sidebar-collapsed) .sidebar {
+      transition: transform 0.2s ease;
+    }
+
     .content {
       flex: 1;
       padding: 28px;
@@ -2124,8 +2160,16 @@
       color: #9ee5bf;
     }
 
-    .ds-grand { font-weight: 700; background: #f0faf6 !important; }
-    .ds-grand td { border-top: 2px solid #2F7A5F; }
+    /* Grand total row inside Detail summary tables. The bg used to be the
+       hardcoded `#f0faf6` (a pale green) which stayed nearly white in dark
+       mode and washed the text out. Now it's a tinted accent overlay that
+       reads on either theme. */
+    .ds-grand {
+      font-weight: 700;
+      background: color-mix(in srgb, var(--accent, #16a34a) 12%, var(--ds-card-bg, #ffffff)) !important;
+      color: var(--ds-card-text);
+    }
+    .ds-grand td { border-top: 2px solid color-mix(in srgb, var(--accent, #16a34a) 55%, transparent); color: var(--ds-card-text); }
 
     /* Back-compat (older code paths may still reference these) */
     .summary-grid, .charts-grid { display: none; }
@@ -4705,6 +4749,7 @@
         <button class="btn btn-primary" id="btnLoginEmail" style="width:100%; justify-content:center;">Kirim kode &amp; link →</button>
         <p class="text-sm" style="color:var(--text-secondary); text-align:center; line-height:1.5;">
           Kami kirim link login &amp; kode 6-digit ke email kamu. Link berlaku 15 menit.
+          <br/><strong>Cek folder Spam / Promosi</strong> kalau email belum masuk dalam 1–2 menit.
         </p>
       </div>
 
@@ -4727,7 +4772,7 @@
 
       <!-- Step 2 - verify code -->
       <div class="login-form hidden" id="loginStepCode">
-        <div class="text-sm" id="loginCodeHint" style="color:var(--text-secondary); text-align:center;">Cek inbox kamu.</div>
+        <div class="text-sm" id="loginCodeHint" style="color:var(--text-secondary); text-align:center;">Cek inbox kamu (cek juga folder <strong>Spam / Promosi</strong> kalau belum masuk).</div>
         <div>
           <label class="label">Kode 6-digit dari email</label>
           <input class="input" id="loginCode" inputmode="numeric" maxlength="6" placeholder="123456" style="letter-spacing: 6px; font-family: var(--font-mono); text-align:center; font-size:20px;" autocomplete="one-time-code" />
@@ -4843,6 +4888,12 @@
         <div class="row">
           <button class="btn-icon mobile-menu-btn" id="btnMobileMenu">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <!-- Desktop / tablet sidebar collapse toggle. Hidden on mobile via
+               CSS (see .desktop-sidebar-btn @media). Click flips the
+               .is-sidebar-collapsed class on .app and persists to settings. -->
+          <button class="desktop-sidebar-btn" id="btnSidebarToggle" type="button" title="Hide / show sidebar" aria-label="Toggle sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
           </button>
           <div class="topbar-title" id="topbarTitle">
             <img class="topbar-brand-icon" src="assets/inputin-icon.png" alt="" />
@@ -5541,7 +5592,7 @@
                   <input type="email" id="akunEmailInput" class="input" placeholder="email@kamu.com" autocomplete="email" style="flex:1; min-width:220px;" />
                   <button class="btn btn-primary btn-sm" id="btnAkunRequest">Daftar / Masuk</button>
                 </div>
-                <div class="hint" style="margin-top:6px;">Kami kirim kode 6-digit ke email kamu. Sama untuk daftar baru maupun masuk akun lama.</div>
+                <div class="hint" style="margin-top:6px;">Kami kirim kode 6-digit ke email kamu. Sama untuk daftar baru maupun masuk akun lama. <strong>Cek folder Spam / Promosi</strong> kalau email belum masuk dalam 1–2 menit.</div>
               </div>
 
               <!-- Signup state: collect name + WA before sending magic link -->
@@ -5568,7 +5619,7 @@
 
               <!-- Awaiting-code state: enter 6-digit code -->
               <div id="akunAwaitingCode" hidden>
-                <div class="text-sm" id="akunCodeHint" style="margin-bottom:10px;">Kode terkirim ke email kamu.</div>
+                <div class="text-sm" id="akunCodeHint" style="margin-bottom:10px;">Kode terkirim ke email kamu. Cek juga folder <strong>Spam / Promosi</strong> kalau belum masuk.</div>
                 <div style="display:flex; flex-wrap:wrap; gap:8px;">
                   <input type="text" id="akunCodeInput" class="input" inputmode="numeric" maxlength="6" placeholder="6-digit kode" autocomplete="one-time-code" style="flex:1; min-width:160px; letter-spacing:0.3em; text-align:center; font-family: var(--font-mono);" />
                   <button class="btn btn-primary btn-sm" id="btnAkunVerify">Verifikasi</button>
@@ -6142,6 +6193,9 @@
         //         'summary' = one card with the grand total
         aiMultiText:  'split',
         aiMultiImage: 'summary',
+        // Desktop / tablet sidebar visibility. False = sidebar visible (default).
+        // Toggled by the topbar button next to the mobile-menu button.
+        sidebarCollapsed: false,
         // Notification prefs. master must be true AND Notification.permission
         // === 'granted' for any notif to fire. Per-category toggles let users
         // mute specific events. Server-push items (daily, weekly) are stored
@@ -10853,9 +10907,42 @@ Use the user input carefully, but keep the output minimal and structured. Return
       [/business|bisnis|usaha|modal/i,                          'store',      '#0891b2'],
     ];
     function categoryIconSVG(category, sub, name) {
-      const probe = `${category || ''} ${sub || ''} ${name || ''}`.trim();
-      for (const [re, key, color] of CAT_ICONS) {
-        if (re.test(probe)) return { svg: ICON_SVG[key], color };
+      // Priority 1: user-picked iconKey/iconColor stored on the matching
+      // category row. The Sheets → Categories list lets users pick a custom
+      // icon (e.g. "Personal Loan" → piggy, "Tax & Admin Fee" → red receipt);
+      // before this fix transaction lists ignored those picks and showed
+      // whatever a regex match produced, so the same category looked
+      // different in Categories vs Detail / Recent / Top10.
+      if (category && Array.isArray(state?.categories)) {
+        const cats = state.categories;
+        // Try (category, sub) exact match first; fall back to category-only
+        // so all sub-categories of "Personal Loan" share the icon when only
+        // one row carries the explicit iconKey.
+        const exact = cats.find((c) => c.category === category && (sub ? c.subCategory === sub : true));
+        const looseRow = exact || cats.find((c) => c.category === category && c.iconKey);
+        if (looseRow && looseRow.iconKey && ICON_SVG[looseRow.iconKey]) {
+          return {
+            svg: ICON_SVG[looseRow.iconKey],
+            color: looseRow.iconColor || '#64748b',
+          };
+        }
+      }
+      // Priority 2: regex match on category + sub. Drop `name` from the
+      // probe to prevent false positives — "FOTOKOPI" matched the food
+      // regex via "kopi", and "Tagihan Paylater" matched the bills regex
+      // via "tagihan", overriding the actual category.
+      const catProbe = `${category || ''} ${sub || ''}`.trim();
+      if (catProbe) {
+        for (const [re, key, color] of CAT_ICONS) {
+          if (re.test(catProbe)) return { svg: ICON_SVG[key], color };
+        }
+      }
+      // Priority 3: only when no category was provided at all (the
+      // name-only call site for Name Summary), regex on the name.
+      if (!category && !sub && name) {
+        for (const [re, key, color] of CAT_ICONS) {
+          if (re.test(name)) return { svg: ICON_SVG[key], color };
+        }
       }
       return { svg: ICON_SVG.tag, color: '#64748b' };
     }
@@ -13592,6 +13679,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const on = !!(state.settings && state.settings.demoMode);
       banner.hidden = !on;
     }
+    // Desktop sidebar collapse. State.settings.sidebarCollapsed is the source
+    // of truth; this function reflects it onto the DOM. CSS handles the
+    // animation. No-op on mobile because the @media query in
+    // .desktop-sidebar-btn already keeps the button hidden there, and on
+    // mobile the sidebar uses .open instead of grid collapse.
+    function applySidebarCollapsed() {
+      const app = document.getElementById('app');
+      if (!app) return;
+      const collapsed = !!(state.settings && state.settings.sidebarCollapsed);
+      app.classList.toggle('is-sidebar-collapsed', collapsed);
+    }
+    function toggleSidebarCollapsed() {
+      state.settings = state.settings || {};
+      state.settings.sidebarCollapsed = !state.settings.sidebarCollapsed;
+      saveState();
+      applySidebarCollapsed();
+    }
     // Called by the auth endpoints after a successful verify. Persists the
     // session token + user identity; does not make additional network calls.
     function doLogin({ email, name, provider, userId, plan, sessionToken }) {
@@ -13849,7 +13953,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
           btnLoginEmail.textContent = 'Mengirim…';
           await requestMagicLink(email);
           const hint = document.getElementById('loginCodeHint');
-          if (hint) hint.textContent = `Kami kirim kode ke ${email}. Masukkan di bawah (atau klik link di email).`;
+          if (hint) {
+            // innerHTML so the <strong>Spam</strong> emphasis renders. Email
+            // is escapeHtml'd because users can put anything in the input.
+            hint.innerHTML =
+              `Kami kirim kode ke ${escapeHtml(email)}. Masukkan di bawah (atau klik link di email).`
+              + `<br/>Cek folder <strong>Spam / Promosi</strong> kalau email belum masuk.`;
+          }
           showLoginStep('code');
           toast('Email terkirim ✓');
         } catch (err) {
@@ -13880,7 +13990,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
           const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal daftar');
           const hint = document.getElementById('loginCodeHint');
-          if (hint) hint.textContent = `Kami kirim kode ke ${email}. Masukkan di bawah (atau klik link di email).`;
+          if (hint) {
+            // innerHTML so the <strong>Spam</strong> emphasis renders. Email
+            // is escapeHtml'd because users can put anything in the input.
+            hint.innerHTML =
+              `Kami kirim kode ke ${escapeHtml(email)}. Masukkan di bawah (atau klik link di email).`
+              + `<br/>Cek folder <strong>Spam / Promosi</strong> kalau email belum masuk.`;
+          }
           showLoginStep('code');
           toast('Akun terdaftar ✓ — cek email kamu untuk kode.');
         } catch (err) {
@@ -13981,6 +14097,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Mobile menu
       document.getElementById('btnMobileMenu').addEventListener('click', openSidebarMobile);
       document.getElementById('sidebarOverlay').addEventListener('click', closeSidebarMobile);
+      // Desktop / tablet sidebar collapse toggle. Lives next to the mobile
+      // menu button but only renders on ≥769px viewports.
+      const btnSidebarToggle = document.getElementById('btnSidebarToggle');
+      if (btnSidebarToggle) btnSidebarToggle.addEventListener('click', toggleSidebarCollapsed);
 
       // Theme toggle (sidebar)
       document.getElementById('btnTheme').addEventListener('click', () => {
@@ -15073,7 +15193,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
         if (btn) btn.textContent = 'Mengirim…';
         await requestMagicLink(email);
         const hint = document.getElementById('akunCodeHint');
-        if (hint) hint.textContent = `Kami kirim kode ke ${email}. Kode berlaku 15 menit.`;
+        if (hint) {
+          // innerHTML so the <strong>Spam</strong> emphasis renders. Email
+          // is escapeHtml'd because users can put anything in the input.
+          hint.innerHTML =
+            `Kami kirim kode ke ${escapeHtml(email)}. Kode berlaku 15 menit.`
+            + `<br/>Cek folder <strong>Spam / Promosi</strong> kalau email belum masuk.`;
+        }
         setAkunStep('awaiting');
         const codeInp = document.getElementById('akunCodeInput');
         if (codeInp) { codeInp.value = ''; codeInp.focus(); }
@@ -15115,7 +15241,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
         try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
 
         const hint = document.getElementById('akunCodeHint');
-        if (hint) hint.textContent = `Kami kirim kode ke ${email}. Kode berlaku 15 menit.`;
+        if (hint) {
+          // innerHTML so the <strong>Spam</strong> emphasis renders. Email
+          // is escapeHtml'd because users can put anything in the input.
+          hint.innerHTML =
+            `Kami kirim kode ke ${escapeHtml(email)}. Kode berlaku 15 menit.`
+            + `<br/>Cek folder <strong>Spam / Promosi</strong> kalau email belum masuk.`;
+        }
         setAkunStep('awaiting');
         const codeInp = document.getElementById('akunCodeInput');
         if (codeInp) { codeInp.value = ''; codeInp.focus(); }
@@ -16527,6 +16659,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       wireDetailBreakpointSync();
       applyAdminMode();
       renderDemoBanner();
+      applySidebarCollapsed();
       _tourWireOnce();
       _wirePwaInstall();
       _wireNotifSettings();
