@@ -2771,6 +2771,48 @@
     }
     .msg.user .msg-attachment-file { background: rgba(255,255,255,0.18); }
 
+    /* In-app image lightbox. Replaces the old `window.open(dataUrl)` which
+       Chrome blocks (data: URI navigation is restricted since 2019, opens
+       a blank tab). Click the close button, the dimmed backdrop, or press
+       Escape to dismiss. Body scroll is locked while open. */
+    .img-lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.88);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      animation: lightboxIn 120ms ease-out;
+    }
+    .img-lightbox[hidden] { display: none; }
+    @keyframes lightboxIn { from { opacity: 0; } to { opacity: 1; } }
+    .img-lightbox img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      cursor: zoom-out;
+    }
+    .img-lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    .img-lightbox-close:hover { background: rgba(255, 255, 255, 0.28); }
+
     /* ============== TRANSACTIONS TABLE ============== */
     .txn-toolbar {
       display: flex;
@@ -5917,6 +5959,15 @@
 
   <div class="toasts" id="toasts"></div>
 
+  <!-- Image lightbox. Lives at the body level so it overlays everything,
+       including modals. Hidden by default; openImageLightbox() flips the
+       hidden attribute and sets the <img> src. The picture itself uses the
+       in-memory dataUrl from state.messages so there's no network call. -->
+  <div id="imgLightbox" class="img-lightbox" hidden role="dialog" aria-modal="true" aria-label="Pratinjau gambar">
+    <img id="imgLightboxPic" alt="">
+    <button type="button" class="img-lightbox-close" id="imgLightboxClose" aria-label="Tutup pratinjau">×</button>
+  </div>
+
   <!-- Onboarding tour (mounted hidden; shown by tour.js) -->
   <div id="tourOverlay" class="tour-overlay" style="display:none;" aria-hidden="true">
     <svg class="tour-mask" preserveAspectRatio="none">
@@ -6859,19 +6910,42 @@
         : '';
 
       // System prompt ported from n8n "Cash Flow Bot" (AI Agent node).
-      // Multi-tx mode is controlled by the per-channel `mode` arg:
-      //   summary - emit one consolidated transaction (default for receipts)
-      //   split   - emit an array, one entry per detected transaction
+      // Two independent dimensions drive the rules:
+      //   isSplit   - user wants per-transaction split vs. one consolidated grand total
+      //   hasImages - input includes OCR'd receipt/invoice text vs. plain text only
+      // The four combinations have different "what counts as one transaction" rules,
+      // so we branch the extraction rule explicitly instead of leaving it to the model.
       const isSplit = mode === 'split';
+      const hasImages = Array.isArray(images) && images.length > 0;
       const headline = isSplit
         ? `You extract one or more financial transactions from user input into structured JSON. Multiple transactions in one input must each be returned as a separate object inside a "transactions" array.`
         : `You extract ONE financial transaction from user input into structured JSON. If the input mentions multiple amounts, consolidate them into a single transaction whose Value is the GRAND TOTAL.`;
-      const extractionRule = isSplit
-        ? `- The user may describe multiple distinct transactions in one message (e.g. "makan 25rb, bensin 50rb, kopi 20rb"). Detect every distinct transaction and return one object per transaction inside the "transactions" array.
-- For a single receipt that lists many line items but ONE final total (e.g. dine-in bill with subtotal + grand total), return ONE transaction with Value = grand total. Do NOT split a single receipt into per-item rows unless the user clearly asked for that.
-- Each detected transaction is independent — categorize, type, and account-tag each one separately.`
-        : `- Extract only ONE main transaction.
-- If the input contains multiple amounts (e.g. "makan 25rb, bensin 50rb, kopi 20rb" or a receipt with line items), SUM them into a single Value (grand total) and pick a Transaction Name that summarizes the group (e.g. "Belanja Harian", "Makan Siang Group", or the merchant name from a receipt).`;
+      let extractionRule;
+      if (isSplit && hasImages) {
+        // Per-line-item split from an OCR'd receipt or invoice.
+        extractionRule = `- The user attached an image/PDF (a receipt or invoice). The OCR'd text is appended to the user message below. EACH line item on the receipt/invoice is a SEPARATE transaction.
+- For every line item with its own description and amount (e.g. "DESAIN LOGO Rp 10,200", "NYU BROWN 30  41,200"), emit ONE entry in the "transactions" array.
+- Use the line item description as Transaction Name (Title-Case it, e.g. "Desain Logo", "Nyu Brown 30").
+- Use the line item LINE TOTAL as Value (the per-line amount AFTER any item-level discount printed directly under it, BEFORE store-wide totals/tax). For example "NYU BROWN 30  41,200" then "Disc. -3,400" → Value = 37800.
+- Do NOT include the grand total / "Total Belanja" / "Total Keseluruhan" / tax line / change-due line as a separate transaction. Skip them entirely.
+- If the receipt has only one line item, return one transaction.
+- Categorize each line item independently based on what it actually is (e.g. food vs. toiletries vs. drinks).`;
+      } else if (isSplit && !hasImages) {
+        // Per-amount split from plain text.
+        extractionRule = `- The user may describe multiple distinct transactions in one message (e.g. "makan 25rb, bensin 50rb, kopi 20rb"). Detect every distinct transaction and return one object per transaction inside the "transactions" array.
+- Each detected transaction is independent — categorize, type, and account-tag each one separately.`;
+      } else if (!isSplit && hasImages) {
+        // Summary mode for an OCR'd receipt: one transaction at the grand total.
+        extractionRule = `- The user attached an image/PDF (a receipt or invoice). The OCR'd text is appended to the user message below. Return EXACTLY ONE transaction representing the WHOLE document.
+- Value = the FINAL grand total (e.g. "Total Belanja", "Total Keseluruhan", "Grand Total"), NOT a per-item line and NOT the pre-discount subtotal. Include any tax already rolled into the grand total.
+- Transaction Name = the merchant name from the top of the receipt (e.g. "Alfamidi Tidar", "Myoung Ga Korean Resto"). For an invoice without a clear merchant, use a brief group description from the document title (e.g. "Invoice Desain", "Tagihan Listrik").
+- Transaction Category = the dominant theme across the line items (e.g. mixed groceries+drinks at a minimart → "Groceries"; restaurant bill → "Food & Beverage").
+- Do NOT split per-item. The user explicitly chose "summary" mode for image input.`;
+      } else {
+        // Summary mode for plain text.
+        extractionRule = `- Extract only ONE main transaction.
+- If the input contains multiple amounts (e.g. "makan 25rb, bensin 50rb, kopi 20rb"), SUM them into a single Value (grand total) and pick a Transaction Name that summarizes the group (e.g. "Belanja Harian", "Makan Siang Group").`;
+      }
       const outputSchemaBlock = isSplit
         ? `Output schema (strict — wrap in "transactions" array even if only one):
 {
@@ -10831,7 +10905,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (Array.isArray(m.attachments) && m.attachments.length) {
         attHTML = '<div class="msg-attachments">' + m.attachments.map((a) => {
           if (a.kind === 'image' && a.dataUrl) {
-            return `<img class="msg-attachment-img" src="${a.dataUrl}" alt="${escapeAttr(a.name)}" onclick="window.open(this.src,'_blank')">`;
+            // Inline thumbnail. Click handler is delegated on chatMessages
+            // (see openImageLightbox) so the dataUrl never has to round-trip
+            // through window.open() — Chrome blocks data: navigations there.
+            return `<img class="msg-attachment-img" src="${a.dataUrl}" alt="${escapeAttr(a.name)}" data-lightbox="1">`;
           }
           const tag = a.kind === 'spreadsheet' ? 'XLS/CSV'
                     : a.kind === 'pdf' ? 'PDF'
@@ -13939,8 +14016,51 @@ Use the user input carefully, but keep the output minimal and structured. Return
         });
       }
 
+      // Image lightbox: click any [data-lightbox] thumbnail to open. The
+      // backdrop and the close button both dismiss; Escape too. Body scroll
+      // locks while open so background scrolling doesn't bleed through.
+      function openImageLightbox(src) {
+        const lb = document.getElementById('imgLightbox');
+        const pic = document.getElementById('imgLightboxPic');
+        if (!lb || !pic || !src) return;
+        pic.src = src;
+        lb.hidden = false;
+        document.body.style.overflow = 'hidden';
+      }
+      function closeImageLightbox() {
+        const lb = document.getElementById('imgLightbox');
+        if (!lb || lb.hidden) return;
+        lb.hidden = true;
+        document.body.style.overflow = '';
+        const pic = document.getElementById('imgLightboxPic');
+        if (pic) pic.src = ''; // free the memory the dataUrl holds
+      }
+      document.getElementById('imgLightbox')?.addEventListener('click', (e) => {
+        // Click on backdrop (the lightbox itself) or on close button → close.
+        // Click on the image itself ALSO closes (the cursor is zoom-out there)
+        // for a one-click dismiss UX.
+        if (e.target.id === 'imgLightbox' ||
+            e.target.id === 'imgLightboxClose' ||
+            e.target.id === 'imgLightboxPic') {
+          closeImageLightbox();
+        }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const lb = document.getElementById('imgLightbox');
+          if (lb && !lb.hidden) closeImageLightbox();
+        }
+      });
+
       // Chat txn actions (event delegation)
       document.getElementById('chatMessages').addEventListener('click', (e) => {
+        // Image thumbnail click → open in-app lightbox. Handled BEFORE the
+        // txn-button branches so a click never falls through to them.
+        const img = e.target.closest('img.msg-attachment-img[data-lightbox]');
+        if (img) {
+          openImageLightbox(img.src);
+          return;
+        }
         const s = e.target.closest('[data-confirm-save]');
         if (s) {
           // Capture the click origin BEFORE saveTxn() re-renders the chat and
