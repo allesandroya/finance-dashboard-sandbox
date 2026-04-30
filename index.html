@@ -5896,7 +5896,23 @@
                   </label>
                   <div class="notif-time-row" id="notifDailyTimeRow">
                     <label class="notif-time-label">Jam pengingat</label>
-                    <input type="time" id="notifDailyTime" class="input notif-time-input" value="21:00" />
+                    <!-- Hour-only picker. Cron fires once per hour (0 * * * *)
+                         to keep KV usage low; precision-by-the-hour is still
+                         plenty for a daily reminder. -->
+                    <select class="select notif-time-input" id="notifDailyTime">
+                      <option value="00:00">00:00</option><option value="01:00">01:00</option>
+                      <option value="02:00">02:00</option><option value="03:00">03:00</option>
+                      <option value="04:00">04:00</option><option value="05:00">05:00</option>
+                      <option value="06:00">06:00</option><option value="07:00">07:00</option>
+                      <option value="08:00">08:00</option><option value="09:00">09:00</option>
+                      <option value="10:00">10:00</option><option value="11:00">11:00</option>
+                      <option value="12:00">12:00</option><option value="13:00">13:00</option>
+                      <option value="14:00">14:00</option><option value="15:00">15:00</option>
+                      <option value="16:00">16:00</option><option value="17:00">17:00</option>
+                      <option value="18:00">18:00</option><option value="19:00">19:00</option>
+                      <option value="20:00">20:00</option><option value="21:00" selected>21:00</option>
+                      <option value="22:00">22:00</option><option value="23:00">23:00</option>
+                    </select>
                   </div>
                   <label class="notif-toggle-row">
                     <span class="notif-toggle-info">
@@ -5920,7 +5936,21 @@
                         <option value="Sat">Sabtu</option>
                         <option value="Sun">Minggu</option>
                       </select>
-                      <input type="time" id="notifWeeklyTime" class="input notif-time-input" value="08:00" />
+                      <!-- Hour-only picker; same rationale as daily. -->
+                      <select class="select notif-time-input" id="notifWeeklyTime">
+                        <option value="00:00">00:00</option><option value="01:00">01:00</option>
+                        <option value="02:00">02:00</option><option value="03:00">03:00</option>
+                        <option value="04:00">04:00</option><option value="05:00">05:00</option>
+                        <option value="06:00">06:00</option><option value="07:00">07:00</option>
+                        <option value="08:00" selected>08:00</option><option value="09:00">09:00</option>
+                        <option value="10:00">10:00</option><option value="11:00">11:00</option>
+                        <option value="12:00">12:00</option><option value="13:00">13:00</option>
+                        <option value="14:00">14:00</option><option value="15:00">15:00</option>
+                        <option value="16:00">16:00</option><option value="17:00">17:00</option>
+                        <option value="18:00">18:00</option><option value="19:00">19:00</option>
+                        <option value="20:00">20:00</option><option value="21:00">21:00</option>
+                        <option value="22:00">22:00</option><option value="23:00">23:00</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -16404,24 +16434,47 @@ Use the user input carefully, but keep the output minimal and structured. Return
           if (row) row.classList.remove('notif-toggle-soon');
         }
       });
-      // Test push button: only useful once user is logged in + has a server-push
-      // subscription (daily OR weekly on). Otherwise hide.
+      // Test push button: useful for verifying delivery during development.
+      // Hidden on production (inputin.app) — end users don't need a "skip the
+      // schedule" escape hatch. Sandbox keeps it for QA / cron debugging.
       const testRow = document.getElementById('notifTestRow');
       if (testRow) {
-        const showTest = effectivelyOn && linked && (n.daily || n.weekly);
+        const isProdHost = location.hostname === 'inputin.app' || location.hostname === 'www.inputin.app';
+        const showTest = !isProdHost && effectivelyOn && linked && (n.daily || n.weekly);
         testRow.style.display = showTest ? '' : 'none';
       }
       // Time-picker rows: shown only when the parent toggle is checked AND the
       // user is linked (server-push needs a session to bind).
+      // Migration: existing users may have stored HH:MM (e.g. "21:30") from
+      // before we moved to hour-only precision. Round any non-:00 value down
+      // to the hour so it matches one of the dropdown options. Out-of-range
+      // values fall back to the per-category default.
+      const roundToHour = (val, fallback) => {
+        const m = /^(\d{1,2}):\d{2}$/.exec(String(val || '').trim());
+        if (!m) return fallback;
+        const h = Math.max(0, Math.min(23, parseInt(m[1], 10)));
+        return String(h).padStart(2, '0') + ':00';
+      };
       const dailyTimeInput = document.getElementById('notifDailyTime');
       const dailyRow = document.getElementById('notifDailyTimeRow');
-      if (dailyTimeInput) dailyTimeInput.value = n.dailyTime || '21:00';
+      if (dailyTimeInput) {
+        const v = roundToHour(n.dailyTime, '21:00');
+        dailyTimeInput.value = v;
+        // Persist the rounded value back so saveState/sync send the
+        // canonical HH:00 to the Worker — otherwise a stale "21:30" lingers
+        // in state until the user manually picks a new hour.
+        if (n.dailyTime !== v) { n.dailyTime = v; saveState(); }
+      }
       if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked);
       const weeklyDaySel = document.getElementById('notifWeeklyDay');
       const weeklyTimeInput = document.getElementById('notifWeeklyTime');
       const weeklyRow = document.getElementById('notifWeeklyTimeRow');
       if (weeklyDaySel) weeklyDaySel.value = n.weeklyDay || 'Mon';
-      if (weeklyTimeInput) weeklyTimeInput.value = n.weeklyTime || '08:00';
+      if (weeklyTimeInput) {
+        const v = roundToHour(n.weeklyTime, '08:00');
+        weeklyTimeInput.value = v;
+        if (n.weeklyTime !== v) { n.weeklyTime = v; saveState(); }
+      }
       if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked);
     }
 
