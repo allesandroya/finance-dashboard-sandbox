@@ -6342,7 +6342,61 @@
     }
 
     function saveState() {
-      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      // localStorage quota varies by platform. iOS PWA in particular is
+      // tight (~5MB) and image base64 thumbnails in chat history can fill it
+      // fast. If setItem throws QuotaExceededError, strip dataUrl from
+      // OLDER chat attachments (keep the latest 20 messages intact for the
+      // current session) and retry once. Worst case: we lose chat thumbnails
+      // for old messages, but the chat keeps functioning. WITHOUT this,
+      // saveState's throw bubbles through handleSend → renderChat never
+      // runs → user's message bubble never appears (the symptom reported on
+      // iOS PWA).
+      const tryWrite = () => localStorage.setItem(LS_KEY, JSON.stringify(state));
+      try {
+        tryWrite();
+      } catch (e) {
+        const isQuota = e && (e.name === 'QuotaExceededError' || e.code === 22 ||
+          (e.message && /quota|exceeded/i.test(e.message)));
+        if (!isQuota) {
+          console.error('saveState failed:', e);
+        } else {
+          try {
+            // 1st rescue: strip dataUrl from attachments older than the last 20
+            // messages so today's chat thumbnails still render.
+            if (Array.isArray(state.messages) && state.messages.length > 20) {
+              const cut = state.messages.length - 20;
+              for (let i = 0; i < cut; i++) {
+                const m = state.messages[i];
+                if (m && Array.isArray(m.attachments)) {
+                  for (const a of m.attachments) { if (a && a.dataUrl) delete a.dataUrl; }
+                }
+              }
+              tryWrite();
+            } else {
+              throw e; // fall to next rescue
+            }
+          } catch {
+            try {
+              // 2nd rescue: strip dataUrl from ALL chat attachments. Keeps
+              // text + filenames; losing the inline image previews is far
+              // better than the chat being broken.
+              if (Array.isArray(state.messages)) {
+                for (const m of state.messages) {
+                  if (m && Array.isArray(m.attachments)) {
+                    for (const a of m.attachments) { if (a && a.dataUrl) delete a.dataUrl; }
+                  }
+                }
+              }
+              tryWrite();
+              console.warn('localStorage quota hit; stripped attachment thumbnails to recover.');
+            } catch (e2) {
+              // Give up persistence for this tick. State stays in memory so
+              // the current view still updates; we just won't survive a reload.
+              console.error('saveState recovery failed:', e2);
+            }
+          }
+        }
+      }
       // Phase 9 - debounced auto-push to cloud on every mutation. Safe no-op
       // until schedulePush is defined (hoisted function declaration later).
       if (typeof schedulePush === 'function') schedulePush();
@@ -7093,10 +7147,11 @@
       } else if (!isSplit && hasImages) {
         // Summary mode for an OCR'd receipt: one transaction at the grand total.
         extractionRule = `- The user attached an image/PDF (a receipt or invoice). The OCR'd text is appended to the user message below. Return EXACTLY ONE transaction representing the WHOLE document.
-- Value = the FINAL grand total (e.g. "Total Belanja", "Total Keseluruhan", "Grand Total"), NOT a per-item line and NOT the pre-discount subtotal. Include any tax already rolled into the grand total.
+- ABSOLUTELY DO NOT return a "transactions" array. ABSOLUTELY DO NOT return multiple transactions. The output must be a single flat JSON object matching the schema below — no array wrapping, no nested transactions field. The user explicitly chose "summary" mode for image input; returning multiple transactions violates that setting.
+- Value = the FINAL grand total (e.g. "Total Belanja", "Total Keseluruhan", "Grand Total", "TOTAL KESELURUHAN"), NOT a per-item line and NOT the pre-discount subtotal. Include any tax already rolled into the grand total.
 - Transaction Name = the merchant name from the top of the receipt (e.g. "Alfamidi Tidar", "Myoung Ga Korean Resto"). For an invoice without a clear merchant, use a brief group description from the document title (e.g. "Invoice Desain", "Tagihan Listrik").
 - Transaction Category = the dominant theme across the line items (e.g. mixed groceries+drinks at a minimart → "Groceries"; restaurant bill → "Food & Beverage").
-- Do NOT split per-item. The user explicitly chose "summary" mode for image input.`;
+- If you cannot find a single grand total, SUM all line item totals yourself and return that sum as Value. Still return only ONE object.`;
       } else {
         // Summary mode for plain text.
         extractionRule = `- Extract only ONE main transaction.
@@ -7283,6 +7338,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
           p._method = 'worker';
           return finalizeAIResponse(p, text);
         });
+        // Defensive collapse: in summary mode the prompt forbids multiple
+        // transactions, but Mistral occasionally still returns line items.
+        // When that happens, pick the entry with the largest Value as the
+        // grand-total proxy. Receipts almost always print the grand total
+        // as the highest single number; per-line items are smaller. This
+        // matches what the user explicitly chose in Settings → AI Chat Bot.
+        if (!isSplit && finalized.length > 1) {
+          const grand = finalized.reduce((max, p) =>
+            (Number(p.Value) || 0) > (Number(max.Value) || 0) ? p : max
+          , finalized[0]);
+          grand._method = (grand._method || 'worker') + '+collapsed';
+          return [grand];
+        }
         return finalized;
       } catch (err) {
         console.error(err);
