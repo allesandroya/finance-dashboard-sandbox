@@ -6209,6 +6209,12 @@
     }
     const defaultState = () => ({
       transactions: [],
+      // Per-id deletion timestamps for transactions. Used by mergeState
+      // during cloud sync so a transaction deleted on Device A doesn't
+      // get resurrected when Device B's stale state is pulled and merged.
+      // Format: { '<txn-id>': <ms-since-epoch> }. Pruned to 90-day rolling
+      // window during autoPush to keep KV size bounded.
+      tombstones: {},
       categories: seedCategories(),
       dictionary: seedDictionary(),
       messages: [
@@ -11624,6 +11630,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       }
     }
 
+    // Sync helper: record a transaction-id deletion timestamp. mergeState
+    // uses tombstones to filter out resurrected entries when a stale cloud
+    // copy of the same transaction is pulled after a delete.
+    function markTombstone(id) {
+      if (!id) return;
+      if (!state.tombstones || typeof state.tombstones !== 'object') state.tombstones = {};
+      state.tombstones[id] = Date.now();
+    }
+
     function saveTxn(msgId) {
       const msg = state.messages.find((m) => m.id === msgId);
       if (!msg) return;
@@ -12053,6 +12068,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 'Sub-Category': subVal,
                 Value: v,
                 'Value Display': formatRupiah(v),
+                // Bump _modifiedAt so cloud merge can tell which device has
+                // the more recent edit. Original `ts` stays as creation
+                // timestamp (used by Recent / sort).
+                _modifiedAt: Date.now(),
               };
               // Persist any newly-coined (type, category, subCategory) tuple
               // to state.categories so the next edit shows it in the dropdown
@@ -14659,7 +14678,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const d = e.target.closest('[data-txn-delete]');
         if (d) {
           if (!confirm('Hapus transaksi ini?')) return;
-          state.transactions = state.transactions.filter((x) => x.id !== d.dataset.txnDelete);
+          const delId = d.dataset.txnDelete;
+          markTombstone(delId);
+          state.transactions = state.transactions.filter((x) => x.id !== delId);
           saveState(); renderSheets(); renderDashboard();
           toast('Terhapus', 'warning');
         }
@@ -14677,6 +14698,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
           } else {
             row[field] = value;
           }
+          // Bump _modifiedAt so cloud merge sees this device as the most
+          // recent editor for this record.
+          row._modifiedAt = Date.now();
           saveState(); renderTransactions(); renderDashboard();
         }
       );
@@ -14926,6 +14950,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           e.stopPropagation();
           const id = del.dataset.detailDelete;
           if (!confirm('Hapus transaksi ini?')) return;
+          markTombstone(id);
           state.transactions = state.transactions.filter((x) => x.id !== id);
           saveState();
           renderDetail();
@@ -15845,6 +15870,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!uid) return;
       const token = getSessionToken();
       if (!token) return;
+      // Prune old tombstones (>90 days) before serializing — keeps the
+      // sync blob bounded even after years of deletes.
+      try { pruneTombstones(); } catch {}
       _pushInFlight = true;
       try {
         const res = await fetch(CONFIG.WORKER_URL + '/api/sync/push', {
@@ -15866,6 +15894,129 @@ Use the user input carefully, but keep the output minimal and structured. Return
       }
     }
 
+    // ===== Multi-device sync merge =====
+    // The old autoPull replaced local state wholesale with the cloud copy.
+    // That worked for single-device users but caused data loss when two
+    // devices were online together: device A saves a new txn, device B's
+    // stale push overwrites cloud, A pulls the cloud copy, A's new txn
+    // disappears. The fix is per-record merge by timestamp:
+    //
+    //   - Transactions: merge by `id`. The newer of (_modifiedAt || ts) wins.
+    //     Tombstones (state.tombstones[id]) gate out resurrected deletes.
+    //   - Categories: merge by composite (type, category, subCategory) key —
+    //     no ts in this list, so "exists on either side ⇒ keep" with local
+    //     winning on key collision (preserves any local iconKey edits).
+    //   - Dictionary: merge by `alias`. Local wins on collision.
+    //   - Messages: merge by `id`, newer ts wins.
+    //   - Settings / plans / goals / recurring / initialBalances / auth:
+    //     left local-only. Settings rarely conflict; if they do,
+    //     last-edit-on-this-device wins, which is the expected mental
+    //     model for per-device prefs.
+    //
+    // Tombstones are pruned to a 90-day rolling window during autoPush so
+    // their JSON footprint stays bounded.
+
+    function _tsOf(rec) {
+      // Edit timestamp wins over creation timestamp so the device with the
+      // freshest edit always survives a merge.
+      return Number((rec && rec._modifiedAt) || (rec && rec.ts) || 0);
+    }
+
+    function _mergeListById(localList, remoteList, idField, tombs) {
+      const map = new Map();
+      const ingest = (list, isLocal) => {
+        for (const r of (list || [])) {
+          if (!r) continue;
+          const id = r[idField];
+          if (!id) continue;
+          const ts = _tsOf(r);
+          // Tombstone gate: skip if a deletion at >= ts exists for this id.
+          if (tombs && tombs[id] && tombs[id] >= ts) continue;
+          const existing = map.get(id);
+          const existingTs = existing ? _tsOf(existing) : -1;
+          // Newer always wins. Ties go to local (defensive — local edits
+          // currently in flight should not be undone by a stale remote
+          // record with the same ts).
+          if (!existing || ts > existingTs || (ts === existingTs && isLocal)) {
+            map.set(id, r);
+          }
+        }
+      };
+      ingest(remoteList, false);
+      ingest(localList, true);
+      return Array.from(map.values());
+    }
+
+    function _mergeListByKey(localList, remoteList, keyFn) {
+      const map = new Map();
+      for (const r of (remoteList || [])) {
+        if (!r) continue;
+        const k = keyFn(r);
+        if (!k) continue;
+        map.set(k, r);
+      }
+      for (const r of (localList || [])) {
+        if (!r) continue;
+        const k = keyFn(r);
+        if (!k) continue;
+        // Local overrides on key collision — preserves locally-set iconKey
+        // / iconColor / example fields the user just edited.
+        map.set(k, r);
+      }
+      return Array.from(map.values());
+    }
+
+    function mergeState(local, remote) {
+      if (!remote || typeof remote !== 'object') return local;
+      const out = { ...local };
+
+      // Tombstones: union, max ts wins. Local wins on tie (recently-deleted
+      // on this device shouldn't get undone by a stale remote).
+      const tombs = { ...(remote.tombstones || {}) };
+      for (const [id, ts] of Object.entries(local.tombstones || {})) {
+        if (!tombs[id] || ts > tombs[id]) tombs[id] = ts;
+      }
+      out.tombstones = tombs;
+
+      out.transactions = _mergeListById(
+        local.transactions, remote.transactions, 'id', tombs
+      );
+      out.categories = _mergeListByKey(
+        local.categories || [], remote.categories || [],
+        (c) => `${c.type}::${c.category}::${c.subCategory}`.toLowerCase()
+      );
+      out.dictionary = _mergeListByKey(
+        local.dictionary || [], remote.dictionary || [],
+        (d) => String(d.alias || '').toLowerCase()
+      );
+      out.messages = _mergeListById(
+        local.messages, remote.messages, 'id'
+        // No tombstones for chat — history is append-only and bot intro
+        // stays at the top.
+      );
+      // Recurring / plans / goals: merge if they have ids, otherwise
+      // keep local. Looking at the codebase these have ids on items
+      // they care about, so a by-id merge is safe.
+      if (Array.isArray(local.recurring) || Array.isArray(remote.recurring)) {
+        out.recurring = _mergeListById(local.recurring, remote.recurring, 'id');
+      }
+      // initialBalances + settings + auth + sheetTab + dashboardRange etc:
+      // keep local. Per-device prefs.
+      return out;
+    }
+
+    function pruneTombstones() {
+      if (!state.tombstones) return;
+      const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000; // 90 days
+      let pruned = 0;
+      for (const [id, ts] of Object.entries(state.tombstones)) {
+        if (ts < cutoff) { delete state.tombstones[id]; pruned++; }
+      }
+      // Caller decides whether to saveState; pruning runs inside autoPush
+      // which reads stateForSync afterward, so no extra save needed here.
+      return pruned;
+    }
+
     async function autoPull() {
       if (isLocalOrigin()) return;
       if (!isLoggedIn()) return;
@@ -15882,12 +16033,22 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const data = await res.json().catch(() => ({}));
         if (!data.ok || !data.exists || !data.state) return;
         const cloudUpdatedAt = Number(data.updatedAt || 0);
-        const localUpdatedAt = Number(state.auth?.lastSyncAt || 0);
-        // Only replace local when cloud is strictly newer. Saves avoid churn.
-        if (cloudUpdatedAt > localUpdatedAt + 1000) {
-          const keepAuth = state.auth;
-          state = { ...data.state, auth: { ...keepAuth, lastSyncAt: cloudUpdatedAt } };
-          try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+        const lastPullAt = Number(state.auth?.lastPullAt || 0);
+        // Skip if we've already pulled this exact cloud snapshot. Without
+        // this we'd merge identical data every 30s — cheap but wasteful.
+        if (cloudUpdatedAt && cloudUpdatedAt <= lastPullAt) return;
+
+        // Snapshot list sizes BEFORE merge so we can detect if anything
+        // actually changed and only re-render then.
+        const beforeSig = `${state.transactions?.length || 0}:${state.categories?.length || 0}:${state.dictionary?.length || 0}:${state.messages?.length || 0}`;
+
+        const merged = mergeState(state, data.state);
+        const keepAuth = state.auth;
+        state = { ...merged, auth: { ...keepAuth, lastPullAt: cloudUpdatedAt, lastSyncAt: cloudUpdatedAt } };
+        try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+
+        const afterSig = `${state.transactions?.length || 0}:${state.categories?.length || 0}:${state.dictionary?.length || 0}:${state.messages?.length || 0}`;
+        if (afterSig !== beforeSig) {
           const activeView = document.querySelector('.view.active')?.id?.replace(/^view-/, '');
           if (activeView) navigateTo(activeView);
           toast('Data disinkronkan dari device lain ✓');
@@ -16988,6 +17149,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!state.dictionary) state.dictionary = seedDictionary();
       if (!state.auth) state.auth = { email: '', name: '', userId: '', plan: 'free', loggedInAt: 0 };
       if (!Array.isArray(state.recurring)) state.recurring = [];
+      // Tombstones (added for sync conflict resolution). Pre-existing users
+      // need this initialized to {} or mergeState will trip the null guard.
+      if (!state.tombstones || typeof state.tombstones !== 'object') state.tombstones = {};
 
       // Fire the recurring-transaction materializer once per boot - catches
       // up any scheduled rows whose nextRunISO is on/before today. The
