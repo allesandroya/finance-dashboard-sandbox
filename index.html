@@ -11914,6 +11914,36 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const acctOptions = (selected) => getAccountNames()
         .map((n) => `<option value="${escapeAttr(n)}" ${selected === n ? 'selected' : ''}>${escapeAttr(n)}</option>`)
         .join('');
+      // Build <option> lists for kategori / sub-kategori dropdowns.
+      // Categories filter by type so an Income txn doesn't see Expense
+      // categories (and vice versa). If state has no categories matching
+      // the type, fall back to all so the user can still pick something.
+      // The current value is preserved as an option even if it's not in
+      // the master list (AI sometimes invents new names; we don't want
+      // editing to silently drop them).
+      const _categoriesForType = (type) => {
+        const all = state.categories || [];
+        const filtered = all.filter((c) => c.type === type);
+        const list = filtered.length ? filtered : all;
+        return [...new Set(list.map((c) => c.category))].sort((a, b) => a.localeCompare(b));
+      };
+      const _subsFor = (type, category) => {
+        const all = state.categories || [];
+        const filtered = all.filter((c) => c.category === category && (!type || c.type === type));
+        return [...new Set(filtered.map((c) => c.subCategory))].sort((a, b) => a.localeCompare(b));
+      };
+      const _renderCatOptions = (type, currentCat) => {
+        const cats = _categoriesForType(type);
+        if (currentCat && !cats.includes(currentCat)) cats.unshift(currentCat); // preserve AI-coined names
+        return cats.map((c) => `<option value="${escapeAttr(c)}" ${c === currentCat ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')
+          + `<option value="__new__">＋ Tambah kategori baru…</option>`;
+      };
+      const _renderSubOptions = (type, category, currentSub) => {
+        const subs = _subsFor(type, category);
+        if (currentSub && !subs.includes(currentSub)) subs.unshift(currentSub);
+        return subs.map((s) => `<option value="${escapeAttr(s)}" ${s === currentSub ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')
+          + `<option value="__new__">＋ Tambah sub-kategori baru…</option>`;
+      };
       const body = `
         <div class="stack-sm">
           <div>
@@ -11934,17 +11964,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
           </div>
           <div>
             <label class="label">Kategori</label>
-            <input type="text" class="input" id="mCat" value="${escapeAttr(t['Transaction Category'] || '')}" list="catList" />
-            <datalist id="catList">
-              ${[...new Set(state.categories.map((c) => c.category))].map((c) => `<option value="${escapeAttr(c)}">`).join('')}
-            </datalist>
+            <select class="select" id="mCat">${_renderCatOptions(t.Type, t['Transaction Category'])}</select>
+            <input type="text" class="input" id="mCatNew" placeholder="Nama kategori baru" style="display:none; margin-top:6px;" />
           </div>
           <div>
             <label class="label">Sub-Kategori</label>
-            <input type="text" class="input" id="mSub" value="${escapeAttr(t['Sub-Category'] || '')}" list="subList" />
-            <datalist id="subList">
-              ${[...new Set(state.categories.map((c) => c.subCategory))].map((c) => `<option value="${escapeAttr(c)}">`).join('')}
-            </datalist>
+            <select class="select" id="mSub">${_renderSubOptions(t.Type, t['Transaction Category'], t['Sub-Category'])}</select>
+            <input type="text" class="input" id="mSubNew" placeholder="Nama sub-kategori baru" style="display:none; margin-top:6px;" />
           </div>
           <div>
             <label class="label">Nominal (Rp)</label>
@@ -11981,16 +12007,47 @@ Use the user input carefully, but keep the output minimal and structured. Return
             label: 'Simpan', className: 'btn-primary', onClick: () => {
               const v = parseRupiahDigits(document.getElementById('mValue').value);
               const typeVal = document.getElementById('mType').value;
+              // Resolve kategori / sub-kategori. Selecting "＋ Tambah baru…"
+              // makes the value '__new__' — read the adjacent text input
+              // instead. If the text input is empty, fall back to "Other".
+              const catSel = document.getElementById('mCat').value;
+              const catNewVal = document.getElementById('mCatNew').value.trim();
+              const subSel = document.getElementById('mSub').value;
+              const subNewVal = document.getElementById('mSubNew').value.trim();
+              const catVal = (catSel === '__new__' ? catNewVal : catSel) || 'Other';
+              const subVal = (subSel === '__new__' ? subNewVal : subSel) || 'Other';
+              if (catSel === '__new__' && !catNewVal) {
+                toast('Isi nama kategori baru atau pilih dari daftar.', 'warning');
+                return;
+              }
+              if (subSel === '__new__' && !subNewVal) {
+                toast('Isi nama sub-kategori baru atau pilih dari daftar.', 'warning');
+                return;
+              }
               const updated = {
                 ...t,
                 Date: document.getElementById('mDate').value,
                 Type: typeVal,
                 'Transaction Name': document.getElementById('mName').value.trim() || 'Transaksi',
-                'Transaction Category': document.getElementById('mCat').value.trim() || 'Other',
-                'Sub-Category': document.getElementById('mSub').value.trim() || 'Other',
+                'Transaction Category': catVal,
+                'Sub-Category': subVal,
                 Value: v,
                 'Value Display': formatRupiah(v),
               };
+              // Persist any newly-coined (type, category, subCategory) tuple
+              // to state.categories so the next edit shows it in the dropdown
+              // without forcing the user to retype. Skips the Other/Other
+              // fallback which is essentially "uncategorized".
+              const tupleExists = (state.categories || []).some(
+                (c) => c.type === typeVal && c.category === catVal && c.subCategory === subVal
+              );
+              const isOtherOnly = catVal === 'Other' && subVal === 'Other';
+              if (!tupleExists && !isOtherOnly && (catSel === '__new__' || subSel === '__new__')) {
+                state.categories = state.categories || [];
+                state.categories.push({
+                  type: typeVal, category: catVal, subCategory: subVal, example: '',
+                });
+              }
               if (typeVal === 'Transfer') {
                 const fromVal = (document.getElementById('mFromAccount')?.value || '').trim();
                 const toVal   = (document.getElementById('mToAccount')?.value   || '').trim();
@@ -12022,6 +12079,72 @@ Use the user input carefully, but keep the output minimal and structured. Return
       };
       typeSel.addEventListener('change', syncRows);
       syncRows();
+
+      // === Kategori / Sub-Kategori dropdown wiring ===
+      // Three things to keep in sync:
+      //   1) selecting "＋ Tambah baru…" reveals the matching text input
+      //   2) changing kategori → repopulate sub-kategori options for that pair
+      //   3) changing tipe → repopulate kategori options filtered to that type,
+      //      then cascade to refresh the sub list
+      // Sub list always re-renders when kategori or type shifts so the user
+      // never sees an Income sub under an Expense kategori.
+      const mCatSel = document.getElementById('mCat');
+      const mCatNew = document.getElementById('mCatNew');
+      const mSubSel = document.getElementById('mSub');
+      const mSubNew = document.getElementById('mSubNew');
+      const refreshSubList = (preserveCurrent) => {
+        // Resolve current category from either the select or the "new" input.
+        const cat = mCatSel.value === '__new__' ? mCatNew.value.trim() : mCatSel.value;
+        const currentSub = preserveCurrent
+          ? (mSubSel.value === '__new__' ? mSubNew.value.trim() : mSubSel.value)
+          : '';
+        mSubSel.innerHTML = _renderSubOptions(typeSel.value, cat, currentSub);
+        // Re-evaluate visibility of the "new sub" input.
+        mSubNew.style.display = mSubSel.value === '__new__' ? '' : 'none';
+      };
+      mCatSel.addEventListener('change', () => {
+        if (mCatSel.value === '__new__') {
+          mCatNew.style.display = '';
+          mCatNew.value = '';
+          mCatNew.focus();
+        } else {
+          mCatNew.style.display = 'none';
+          mCatNew.value = '';
+        }
+        refreshSubList(false);
+      });
+      // When user types a new category name, refresh sub list using the
+      // (likely empty) sub set for that category — they'll usually go to
+      // "＋ Tambah sub baru" too.
+      mCatNew.addEventListener('input', () => refreshSubList(false));
+      mSubSel.addEventListener('change', () => {
+        if (mSubSel.value === '__new__') {
+          mSubNew.style.display = '';
+          mSubNew.value = '';
+          mSubNew.focus();
+        } else {
+          mSubNew.style.display = 'none';
+          mSubNew.value = '';
+        }
+      });
+      typeSel.addEventListener('change', () => {
+        // Type changed (e.g. Expense → Income). Rebuild kategori options
+        // filtered to the new type. Try to preserve the current selection
+        // if it still appears under the new type; otherwise show the first
+        // available category.
+        const currentCat = mCatSel.value === '__new__' ? mCatNew.value.trim() : mCatSel.value;
+        mCatSel.innerHTML = _renderCatOptions(typeSel.value, currentCat);
+        // If old kategori isn't valid anymore, _renderCatOptions still
+        // preserves it via the unshift fallback — so user keeps their value.
+        mCatNew.style.display = 'none';
+        mCatNew.value = '';
+        refreshSubList(true);
+      });
+      // Initial visibility check (covers the case where saved kategori was
+      // wiped from state.categories — though _renderCatOptions preserves it,
+      // user might still want to convert to a "new" entry later).
+      mCatNew.style.display = mCatSel.value === '__new__' ? '' : 'none';
+      mSubNew.style.display = mSubSel.value === '__new__' ? '' : 'none';
     }
 
     // ============ QUICK-ADD MODAL ============
