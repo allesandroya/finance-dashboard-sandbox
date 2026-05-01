@@ -15947,6 +15947,64 @@ Use the user input carefully, but keep the output minimal and structured. Return
       return Array.from(map.values());
     }
 
+    // Dedicated merge for chat messages. Most chat entries don't carry a
+    // stable `id` field — user bubbles, bot replies, and the intro are
+    // pushed with only `role + text + ts`. _mergeListById would drop all
+    // of those (its `if (!id) continue;` guard), which caused user-typed
+    // chat history to vanish on every sync round-trip after the
+    // by-id merge was introduced.
+    //
+    // Strategy:
+    //   - Build a per-message key: prefer m.id; fall back to `ts:<ts>:<role>`.
+    //   - Bot intro is special-cased — multiple devices boot with their own
+    //     intro at different timestamps, so without dedup they'd all stack
+    //     up. Keep only the EARLIEST intro across both sides.
+    //   - Sort merged result by ts ascending so chat reads chronologically.
+    function _mergeMessages(localList, remoteList) {
+      const local = localList || [];
+      const remote = remoteList || [];
+      const isIntro = (m) => {
+        if (!m || m.role !== 'bot' || typeof m.text !== 'string') return false;
+        if (m.text === INITIAL_CHAT_INTRO) return true;
+        try { return LEGACY_CHAT_INTROS && LEGACY_CHAT_INTROS.has(m.text); } catch { return false; }
+      };
+      const keyFor = (m) => {
+        if (!m) return null;
+        if (m.id) return `id:${m.id}`;
+        if (m.ts) return `ts:${m.ts}:${m.role || ''}`;
+        return null;
+      };
+      const map = new Map();
+      let earliestIntro = null;
+      const ingest = (list, isLocal) => {
+        for (const m of list) {
+          if (!m) continue;
+          if (isIntro(m)) {
+            const ts = Number(m.ts || 0);
+            const earlyTs = earliestIntro ? Number(earliestIntro.ts || 0) : Infinity;
+            if (!earliestIntro || ts < earlyTs) earliestIntro = m;
+            continue;
+          }
+          const k = keyFor(m);
+          if (!k) continue; // very rare: no id, no ts → can't merge safely
+          const existing = map.get(k);
+          const ts = Number(m.ts || 0);
+          const exTs = existing ? Number(existing.ts || 0) : -1;
+          // Newer wins; ties go to local (preserves any in-flight edits).
+          if (!existing || ts > exTs || (ts === exTs && isLocal)) {
+            map.set(k, m);
+          }
+        }
+      };
+      ingest(remote, false);
+      ingest(local, true);
+      const sorted = Array.from(map.values()).sort(
+        (a, b) => Number(a.ts || 0) - Number(b.ts || 0)
+      );
+      if (earliestIntro) sorted.unshift(earliestIntro);
+      return sorted;
+    }
+
     function _mergeListByKey(localList, remoteList, keyFn) {
       const map = new Map();
       for (const r of (remoteList || [])) {
@@ -15989,11 +16047,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
         local.dictionary || [], remote.dictionary || [],
         (d) => String(d.alias || '').toLowerCase()
       );
-      out.messages = _mergeListById(
-        local.messages, remote.messages, 'id'
-        // No tombstones for chat — history is append-only and bot intro
-        // stays at the top.
-      );
+      // Chat messages need their own merge — most entries are id-less
+      // (user bubbles, bot replies). _mergeListById would drop them.
+      // _mergeMessages handles ts-fallback + intro dedup.
+      out.messages = _mergeMessages(local.messages, remote.messages);
       // Recurring / plans / goals: merge if they have ids, otherwise
       // keep local. Looking at the codebase these have ids on items
       // they care about, so a by-id merge is safe.
