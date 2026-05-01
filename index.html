@@ -5383,7 +5383,7 @@
                 <!-- Hidden inputs driven by the two buttons above -->
                 <input type="file" id="chatFileInput" accept="image/*,application/pdf,.csv,.xlsx,.xls,.json,.txt" multiple hidden>
                 <input type="file" id="chatCameraInput" accept="image/*" capture="environment" hidden>
-                <textarea id="chatInput" class="chat-input" placeholder="Tulis 1 transaksi (atau lebih, dipisah koma) — contoh: makan bakso 15rb…" rows="1"></textarea>
+                <textarea id="chatInput" class="chat-input" placeholder="Baru makan bakso 15rb…" rows="1"></textarea>
                 <button class="chat-send" id="btnChatSend" title="Kirim (Enter)">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                 </button>
@@ -5701,7 +5701,7 @@
             <div class="card" id="settingsAiCard">
               <div class="card-title mb-3">🤖 AI Chat Bot</div>
               <div class="text-sm text-muted" style="margin-bottom:14px;">
-                Atur cara AI memperlakukan input yang berisi banyak transaksi sekaligus. Pilihan untuk teks dan untuk foto/PDF dipisah karena biasanya kebutuhannya beda.
+                Atur cara AI memperlakukan input yang berisi banyak transaksi sekaligus.
               </div>
               <div class="stack-sm">
                 <div>
@@ -5710,8 +5710,8 @@
                     Contoh: <em>"makan 25rb, bensin 50rb, kopi 20rb"</em>
                   </div>
                   <select class="select" id="aiMultiTextSelect">
-                    <option value="split">Pisah jadi beberapa kartu (1 kartu per transaksi)</option>
-                    <option value="summary">Gabung jadi 1 kartu dengan grand total</option>
+                    <option value="split">Input tiap item transaksi berbeda</option>
+                    <option value="summary">Jumlah jadi 1 transaksi total</option>
                   </select>
                 </div>
                 <hr style="border: none; border-top: 1px solid var(--border); margin: 8px 0;" />
@@ -5721,8 +5721,8 @@
                     Contoh: struk yang punya banyak item (Bulgogi, Sundubu, Es Kelapa, …) atau invoice multi-line.
                   </div>
                   <select class="select" id="aiMultiImageSelect">
-                    <option value="summary">Ringkas jadi 1 kartu dengan grand total</option>
-                    <option value="split">Pisah jadi beberapa kartu (1 kartu per item)</option>
+                    <option value="summary">Jumlah jadi 1 transaksi total</option>
+                    <option value="split">Input tiap item transaksi berbeda</option>
                   </select>
                 </div>
                 <div class="hint" style="margin-top:6px;">
