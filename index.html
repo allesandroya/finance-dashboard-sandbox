@@ -11965,7 +11965,27 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <div>
             <label class="label">Kategori</label>
             <select class="select" id="mCat">${_renderCatOptions(t.Type, t['Transaction Category'])}</select>
-            <input type="text" class="input" id="mCatNew" placeholder="Nama kategori baru" style="display:none; margin-top:6px;" />
+            <div id="mCatNewWrap" style="display:none; margin-top:6px;">
+              <div style="display:flex; gap:10px; align-items:center;">
+                <span class="cat-icon" id="mIconPreview" style="--cat-tint:#64748b;">${ICON_SVG.tag}</span>
+                <input type="text" class="input" id="mCatNew" placeholder="Nama kategori baru" style="flex:1;" />
+              </div>
+              <div style="margin-top:8px;">
+                <div class="label" style="margin-bottom:6px;">Pilih Icon</div>
+                <div class="qa-emoji-wrap">
+                  <div class="qa-icon-grid" id="mIconGrid">${
+                    QA_ICON_OPTIONS.map((opt) => `
+                      <button type="button"
+                              class="qa-icon-tile ${opt.key === 'tag' ? 'active' : ''}"
+                              data-qa-iconkey="${escapeAttr(opt.key)}"
+                              data-qa-iconcolor="${escapeAttr(opt.color)}"
+                              title="${escapeAttr(opt.label)}">
+                        <span class="cat-icon" style="--cat-tint: ${opt.color};">${ICON_SVG[opt.key]}</span>
+                      </button>`).join('')
+                  }</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div>
             <label class="label">Sub-Kategori</label>
@@ -12037,16 +12057,31 @@ Use the user input carefully, but keep the output minimal and structured. Return
               // Persist any newly-coined (type, category, subCategory) tuple
               // to state.categories so the next edit shows it in the dropdown
               // without forcing the user to retype. Skips the Other/Other
-              // fallback which is essentially "uncategorized".
+              // fallback which is essentially "uncategorized". When the user
+              // creates a brand-new kategori, also persist the icon they
+              // picked from the grid (mPickedIconKey/mPickedIconColor stored
+              // on mCatNewWrap.dataset by the picker click handler).
               const tupleExists = (state.categories || []).some(
                 (c) => c.type === typeVal && c.category === catVal && c.subCategory === subVal
               );
               const isOtherOnly = catVal === 'Other' && subVal === 'Other';
               if (!tupleExists && !isOtherOnly && (catSel === '__new__' || subSel === '__new__')) {
                 state.categories = state.categories || [];
-                state.categories.push({
+                const newRow = {
                   type: typeVal, category: catVal, subCategory: subVal, example: '',
-                });
+                };
+                // Only attach iconKey/iconColor when the user actually went
+                // through the "Tambah kategori baru" path (where the picker
+                // is visible). Adding only a sub-kategori under an existing
+                // kategori inherits that kategori's icon via categoryIconSVG.
+                if (catSel === '__new__') {
+                  const wrap = document.getElementById('mCatNewWrap');
+                  if (wrap && wrap.dataset.iconKey) {
+                    newRow.iconKey   = wrap.dataset.iconKey;
+                    newRow.iconColor = wrap.dataset.iconColor || '#64748b';
+                  }
+                }
+                state.categories.push(newRow);
               }
               if (typeVal === 'Transfer') {
                 const fromVal = (document.getElementById('mFromAccount')?.value || '').trim();
@@ -12089,9 +12124,17 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Sub list always re-renders when kategori or type shifts so the user
       // never sees an Income sub under an Expense kategori.
       const mCatSel = document.getElementById('mCat');
+      const mCatNewWrap = document.getElementById('mCatNewWrap');
       const mCatNew = document.getElementById('mCatNew');
+      const mIconGrid = document.getElementById('mIconGrid');
+      const mIconPreview = document.getElementById('mIconPreview');
       const mSubSel = document.getElementById('mSub');
       const mSubNew = document.getElementById('mSubNew');
+      // Icon-picker state for the "Tambah kategori baru" flow. Defaults to
+      // the gray "tag" icon (matches the QA_ICON_OPTIONS entry that's pre-
+      // marked .active in the rendered grid). Tapping a tile updates these.
+      let mPickedIconKey   = 'tag';
+      let mPickedIconColor = '#64748b';
       const refreshSubList = (preserveCurrent) => {
         // Resolve current category from either the select or the "new" input.
         const cat = mCatSel.value === '__new__' ? mCatNew.value.trim() : mCatSel.value;
@@ -12104,11 +12147,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
       };
       mCatSel.addEventListener('change', () => {
         if (mCatSel.value === '__new__') {
-          mCatNew.style.display = '';
+          mCatNewWrap.style.display = '';
           mCatNew.value = '';
           mCatNew.focus();
         } else {
-          mCatNew.style.display = 'none';
+          mCatNewWrap.style.display = 'none';
           mCatNew.value = '';
         }
         refreshSubList(false);
@@ -12127,6 +12170,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
           mSubNew.value = '';
         }
       });
+      // Icon picker click handler — updates the floating preview chip and
+      // tracks the selection in mPickedIconKey/mPickedIconColor so Save
+      // can persist them onto the new category row.
+      if (mIconGrid) mIconGrid.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-qa-iconkey]');
+        if (!btn) return;
+        mPickedIconKey   = btn.dataset.qaIconkey;
+        mPickedIconColor = btn.dataset.qaIconcolor || '#64748b';
+        mIconGrid.querySelectorAll('.qa-icon-tile').forEach((tt) => tt.classList.toggle('active', tt === btn));
+        if (mIconPreview) {
+          mIconPreview.innerHTML = ICON_SVG[mPickedIconKey] || ICON_SVG.tag;
+          mIconPreview.style.setProperty('--cat-tint', mPickedIconColor);
+        }
+      });
       typeSel.addEventListener('change', () => {
         // Type changed (e.g. Expense → Income). Rebuild kategori options
         // filtered to the new type. Try to preserve the current selection
@@ -12136,15 +12193,31 @@ Use the user input carefully, but keep the output minimal and structured. Return
         mCatSel.innerHTML = _renderCatOptions(typeSel.value, currentCat);
         // If old kategori isn't valid anymore, _renderCatOptions still
         // preserves it via the unshift fallback — so user keeps their value.
-        mCatNew.style.display = 'none';
+        mCatNewWrap.style.display = 'none';
         mCatNew.value = '';
         refreshSubList(true);
       });
       // Initial visibility check (covers the case where saved kategori was
       // wiped from state.categories — though _renderCatOptions preserves it,
       // user might still want to convert to a "new" entry later).
-      mCatNew.style.display = mCatSel.value === '__new__' ? '' : 'none';
+      mCatNewWrap.style.display = mCatSel.value === '__new__' ? '' : 'none';
       mSubNew.style.display = mSubSel.value === '__new__' ? '' : 'none';
+      // Expose the picked icon to the Save handler via getters on the
+      // containing function. The save closure is defined ABOVE this code
+      // (it ran during openModal action setup), so we read these via
+      // window-style globals — but cleaner to attach them to the wrap el.
+      if (mCatNewWrap) {
+        mCatNewWrap.dataset.iconKey   = mPickedIconKey;
+        mCatNewWrap.dataset.iconColor = mPickedIconColor;
+      }
+      // Re-sync dataset whenever the picked icon changes so Save reads
+      // the latest value (no closure-share gymnastics needed).
+      if (mIconGrid) mIconGrid.addEventListener('click', () => {
+        if (mCatNewWrap) {
+          mCatNewWrap.dataset.iconKey   = mPickedIconKey;
+          mCatNewWrap.dataset.iconColor = mPickedIconColor;
+        }
+      });
     }
 
     // ============ QUICK-ADD MODAL ============
