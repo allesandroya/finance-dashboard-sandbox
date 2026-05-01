@@ -15803,6 +15803,40 @@ Use the user input carefully, but keep the output minimal and structured. Return
       _pushTimer = setTimeout(() => { _pushTimer = null; autoPush(); }, PUSH_DEBOUNCE_MS);
     }
 
+    // Build a sync-safe copy of state. Strips heavy fields that don't need
+    // to live in cloud KV — primarily image dataUrls in chat attachments
+    // (each ~80-150KB base64; a single user with photos in chat will hit
+    // SYNC_MAX_BYTES=5MB on the worker after just ~50 photos otherwise).
+    //
+    // What still syncs:
+    //   - All transactions (the source of truth for finance data)
+    //   - All categories, dictionary, settings, initial balances, plans
+    //   - Chat text + transaction cards inside chat history
+    //   - Attachment metadata (name, mime, kind) so old chat shows the
+    //     filename pill, just without the inline thumbnail
+    //
+    // What does NOT sync (stays per-device):
+    //   - Image / PDF dataUrl base64 in chat attachments
+    //
+    // On a second device the user sees the same chat history with names of
+    // attached files but not the actual photo thumbnails. Photos are
+    // transient anyway — they exist to be turned into a transaction; once
+    // saved, the txn card has all the data. The original photo can stay on
+    // the device that uploaded it.
+    function stateForSync() {
+      const clone = JSON.parse(JSON.stringify(state));
+      if (Array.isArray(clone.messages)) {
+        for (const m of clone.messages) {
+          if (Array.isArray(m.attachments)) {
+            for (const a of m.attachments) {
+              if (a && a.dataUrl) delete a.dataUrl;
+            }
+          }
+        }
+      }
+      return clone;
+    }
+
     async function autoPush() {
       if (isLocalOrigin()) return;
       if (!isLoggedIn()) return;
@@ -15819,7 +15853,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({ state, deviceLabel: deviceLabel() }),
+          body: JSON.stringify({ state: stateForSync(), deviceLabel: deviceLabel() }),
         });
         if (res.ok) {
           state.auth.lastSyncAt = Date.now();
@@ -15900,7 +15934,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             fetch(CONFIG.WORKER_URL + '/api/sync/push', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify({ state, deviceLabel: deviceLabel() }),
+              body: JSON.stringify({ state: stateForSync(), deviceLabel: deviceLabel() }),
               keepalive: true,
             }).catch(() => {});
           } catch {}
