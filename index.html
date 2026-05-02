@@ -4888,7 +4888,7 @@
            toggle in Settings so the user can flip it without hunting around. -->
       <div class="demo-banner" id="demoBanner" hidden>
         <span class="demo-banner-icon">🎭</span>
-        <span>Kamu sedang di <strong>Demo Mode</strong> — data ini bukan transaksi asli kamu.</span>
+        <span>Kamu sedang di <strong>Demo Mode</strong> - data ini bukan transaksi asli kamu.</span>
         <button type="button" class="demo-banner-action" id="demoBannerOff">Matikan</button>
       </div>
       <header class="topbar">
@@ -5606,7 +5606,7 @@
               <!-- Signup state: collect name + WA before sending magic link -->
               <div id="akunSignup" hidden>
                 <div class="text-sm text-muted" style="margin-bottom:12px;">
-                  Email <strong id="akunSignupEmailLabel">—</strong> belum terdaftar. Lengkapi info di bawah untuk daftar akun baru.
+                  Email <strong id="akunSignupEmailLabel">-</strong> belum terdaftar. Lengkapi info di bawah untuk daftar akun baru.
                 </div>
                 <div class="stack-sm">
                   <div>
@@ -5642,7 +5642,7 @@
               <div id="akunLinked" hidden>
                 <div class="row-between" style="flex-wrap:wrap; gap:10px;">
                   <div>
-                    <div style="font-weight:600;" id="akunLinkedEmail">—</div>
+                    <div style="font-weight:600;" id="akunLinkedEmail">-</div>
                     <div class="text-sm text-muted">User ID: <code id="acctUserId" style="font-size:11px;">-</code></div>
                   </div>
                   <div>
@@ -6007,7 +6007,7 @@
                 <div class="row-between" style="flex-wrap:wrap; gap:10px;">
                   <div>
                     <div style="font-weight:600;">📊 Sheets Tour</div>
-                    <div class="text-sm text-muted">Tabel transaksi & kategori — search, filter, edit, export CSV.</div>
+                    <div class="text-sm text-muted">Tabel transaksi & kategori - search, filter, edit, export CSV.</div>
                   </div>
                   <button class="btn btn-secondary btn-sm" data-replay-tour="sheets">Mulai</button>
                 </div>
@@ -14844,7 +14844,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               + `<br/>Cek folder <strong>Spam / Promosi</strong> kalau email belum masuk.`;
           }
           showLoginStep('code');
-          toast('Akun terdaftar ✓ — cek email kamu untuk kode.');
+          toast('Akun terdaftar ✓ - cek email kamu untuk kode.');
         } catch (err) {
           toast(err.message || 'Gagal daftar.', 'error');
         } finally {
@@ -15931,7 +15931,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         btnSyncNow.disabled = false;
         btnSyncNow.innerHTML = oldLabel;
         if (r.ok) {
-          toast('✓ Sync selesai — semua data terbaru di cloud.', 'success');
+          toast('✓ Sync selesai - semua data terbaru di cloud.', 'success');
           // Update the status hint to "just now"
           const statusEl = document.getElementById('syncStatusText');
           if (statusEl) statusEl.textContent = `Sync terakhir: baru saja · auto tiap 30s.`;
@@ -16128,7 +16128,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         setAkunStep('awaiting');
         const codeInp = document.getElementById('akunCodeInput');
         if (codeInp) { codeInp.value = ''; codeInp.focus(); }
-        toast('Akun terdaftar ✓ — cek email kamu untuk kode.');
+        toast('Akun terdaftar ✓ - cek email kamu untuk kode.');
       } catch (err) {
         toast(err.message || 'Gagal daftar.', 'error');
       } finally {
@@ -17056,21 +17056,21 @@ Use the user input carefully, but keep the output minimal and structured. Return
         // edit affordance.
         key: 'tour_v1_sheets_done',
         label: 'Sheets Tour',
-        desc: 'Tabel transaksi & kategori — search, filter, edit cell, export CSV.',
+        desc: 'Tabel transaksi & kategori - search, filter, edit cell, export CSV.',
         startView: 'sheets',
         steps: [
           {
             id: 'sheets-welcome',
             target: null,
             title: 'Selamat datang di Sheets 📊',
-            body: 'Tampilan spreadsheet untuk semua transaksi dan kategori kamu. Mirip Google Sheets — bisa search, filter, edit cell langsung, dan export ke CSV. Yuk lihat tools-nya.',
+            body: 'Tampilan spreadsheet untuk semua transaksi dan kategori kamu. Mirip Google Sheets - bisa search, filter, edit cell langsung, dan export ke CSV. Yuk lihat tools-nya.',
             before: () => { state.sheetTab = 'transactions'; renderSheets(); },
           },
           {
             id: 'sheets-tabs',
             target: '#sheetTabs',
             title: 'Tab antar tabel',
-            body: 'Switch antara Transactions (semua catatan keuangan-mu), Categories (master kategori + sub-kategori), dan Dictionary (alias merchant — admin only). Angka di samping label = jumlah row.',
+            body: 'Switch antara Transactions (semua catatan keuangan-mu), Categories (master kategori + sub-kategori), dan Dictionary (alias merchant - admin only). Angka di samping label = jumlah row.',
           },
           {
             id: 'sheets-search',
@@ -17094,19 +17094,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
             id: 'sheets-add',
             target: '#btnAddTxn',
             title: 'Add Row manual',
-            body: 'Buka modal Quick-Add untuk input transaksi baru tanpa lewat Chat Bot — cocok kalau kamu sudah tahu persis kategori & akun-nya.',
+            body: 'Buka modal Quick-Add untuk input transaksi baru tanpa lewat Chat Bot - cocok kalau kamu sudah tahu persis kategori & akun-nya.',
           },
           {
             id: 'sheets-export',
             target: '#btnExportCsv',
             title: 'Export CSV',
-            body: 'Download semua transaksi sebagai CSV — termasuk kolom Account / From Account / To Account untuk analisis di Excel atau Google Sheets.',
+            body: 'Download semua transaksi sebagai CSV - termasuk kolom Account / From Account / To Account untuk analisis di Excel atau Google Sheets.',
           },
           {
             id: 'sheets-table',
             target: '.sheet-pane[data-pane="transactions"] .table-wrap',
             title: 'Tabel + inline edit',
-            body: 'Klik cell mana saja untuk edit langsung (Date, Type, Name, Category, Sub-Category, Amount). Kolom Account baru sekarang nampakin akun tiap transaksi — pakai tombol pencil di kanan untuk ubah akun via modal lengkap.',
+            body: 'Klik cell mana saja untuk edit langsung (Date, Type, Name, Category, Sub-Category, Amount). Kolom Account baru sekarang nampakin akun tiap transaksi - pakai tombol pencil di kanan untuk ubah akun via modal lengkap.',
           },
         ],
       },
@@ -17801,7 +17801,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               if ((data.results || []).every(r => r.ok)) {
                 toast('Push test terkirim ✓', 'success');
               } else {
-                toast('Sebagian/semua push gagal — lihat detail di kartu Notifikasi.', 'error');
+                toast('Sebagian/semua push gagal - lihat detail di kartu Notifikasi.', 'error');
               }
             } else {
               if (out) out.textContent = `Gagal: ${data.error || res.status}`;
