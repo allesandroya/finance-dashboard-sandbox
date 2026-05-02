@@ -13625,11 +13625,25 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
     // ============ EXPORT / IMPORT ============
     function exportCsv(rows) {
-      const headers = ['Date', 'Type', 'Transaction Name', 'Transaction Category', 'Sub-Category', 'Value'];
+      // Account columns added so users can analyze spending per-account in
+      // Excel / Google Sheets without losing context. Three columns instead
+      // of one keeps Income/Expense vs Transfer data tidy:
+      //   - Account     : the single account for Income/Expense rows (or blank)
+      //   - From Account: source for Transfer rows
+      //   - To Account  : destination for Transfer rows
+      // JSON export (exportJson) is unaffected — it already serializes the
+      // whole state object with all account fields intact.
+      const headers = ['Date', 'Type', 'Transaction Name', 'Transaction Category', 'Sub-Category', 'Value', 'Account', 'From Account', 'To Account'];
       const data = rows.length ? rows : state.transactions;
+      const valueFor = (t, h) => {
+        if (h === 'Account')      return t.Type === 'Transfer' ? '' : (t.account      || '');
+        if (h === 'From Account') return t.Type === 'Transfer' ? (t.fromAccount || '') : '';
+        if (h === 'To Account')   return t.Type === 'Transfer' ? (t.toAccount   || '') : '';
+        return t[h];
+      };
       const csv = [headers.join(',')].concat(
         data.map((t) => headers.map((h) => {
-          const v = t[h];
+          const v = valueFor(t, h);
           const s = String(v == null ? '' : v);
           return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
         }).join(','))
