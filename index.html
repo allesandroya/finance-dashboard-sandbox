@@ -6235,8 +6235,14 @@
         dashboardRange: 'thisMonth',
         adminMode: false,
         onboardingDone: false,
-        defaultAccountEnabled: false,
-        defaultAccount: '',
+        // Default account ON + Cash from day 1. Without this, transactions
+        // user types via chat without specifying an account stay untagged
+        // and don't roll up under any account balance card. Cash is the
+        // universal "uang dari kantong" sink — if user later sets up
+        // BCA/GoPay/etc, they can pick a different default OR migrate
+        // historical untagged via Settings → Cash on Hand bulk re-tag.
+        defaultAccountEnabled: true,
+        defaultAccount: 'Cash',
         // Multi-transaction handling for chat AI. Independent toggles for
         // text input vs. image/file (OCR) input because the trade-offs differ:
         //   text  — splitting "makan 25rb, bensin 50rb" into 2 cards is usually
@@ -8367,11 +8373,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
       { key: 'eWallets',    label: 'E-Wallets',           icon: '📱', placeholder: 'e.g. GoPay, OVO, Dana' },
     ];
 
-    // Bulk re-tag modal — assigns all currently-untagged Income/Expense
-    // transactions to a chosen account in one click. Touches t.account +
-    // t._modifiedAt so multi-device sync sees the change as a fresh edit.
-    // Skipped: Transfer rows (those use fromAccount/toAccount, not
-    // account; if a Transfer lacks both, it's malformed data — left alone).
+    // Bulk re-tag modal — three modes for retroactive account assignment.
+    // All modes only touch untagged Income/Expense rows (Transfers stay
+    // alone since they use fromAccount/toAccount, not account).
+    //
+    //   1. All → tag every untagged tx to one account in one click.
+    //   2. By Amount → user types target rupiah, system picks oldest
+    //      untagged rows accumulating up to that amount, tags them.
+    //      Useful when user knows "I had Rp 500k in BCA at the start."
+    //   3. Per-tx → table of every untagged tx with a per-row account
+    //      dropdown. Maximum control, slowest. Best for small batches.
+    //
+    // After commit, bumps _modifiedAt on each touched row so cloud sync
+    // treats them as fresh edits.
+    let _migrateMode = 'all';
     function openMigrateUntaggedModal() {
       const accountNames = getAccountNames();
       if (!accountNames.length) {
@@ -8388,51 +8403,223 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const acctOptions = accountNames
         .map((n) => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`)
         .join('');
-      const body = `
-        <div class="stack-sm">
-          <p class="text-sm" style="margin:0 0 4px;">
-            Ada <strong>${untagged.length} transaksi</strong> tanpa akun (saat ini dihitung di Cash).
-            Pilih akun untuk meng-tag semua sekaligus:
-          </p>
-          <div>
-            <label class="label">Tag semua ke akun</label>
-            <select class="select" id="migrateAcctSel">
-              <option value="">- Pilih akun -</option>
-              ${acctOptions}
-            </select>
-          </div>
-          <div class="hint" style="margin-top:4px;">
-            Hanya Income & Expense yang dimigrasikan. Transfer (yang punya from/to akun) tidak terpengaruh.
-          </div>
+      // Sort untagged oldest first — by-amount picks chronologically; per-tx
+      // also reads better with oldest-first ordering.
+      const sorted = [...untagged].sort((a, b) =>
+        (a.Date || '').localeCompare(b.Date || '') || (Number(a.ts) || 0) - (Number(b.ts) || 0)
+      );
+
+      const buildModeTabs = () => `
+        <div class="migrate-tabs" style="display:flex; gap:6px; padding:4px; background: var(--bg-elev); border-radius: 10px; margin-bottom: 14px;">
+          <button type="button" class="migrate-tab ${_migrateMode === 'all' ? 'active' : ''}" data-migrate-mode="all" style="flex:1; padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'all' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'all' ? '600' : '500'}; font-size:12.5px;">📦 Semua ke 1 akun</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'amount' ? 'active' : ''}" data-migrate-mode="amount" style="flex:1; padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'amount' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'amount' ? '600' : '500'}; font-size:12.5px;">💰 Per Nominal</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'detail' ? 'active' : ''}" data-migrate-mode="detail" style="flex:1; padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'detail' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'detail' ? '600' : '500'}; font-size:12.5px;">📝 Per Transaksi</button>
         </div>`;
+
+      const buildBody = () => {
+        const tabs = buildModeTabs();
+        if (_migrateMode === 'all') {
+          return `${tabs}
+            <div class="stack-sm">
+              <p class="text-sm" style="margin:0;">
+                Ada <strong>${untagged.length} transaksi</strong> tanpa akun. Pilih satu akun untuk meng-tag semuanya sekaligus.
+              </p>
+              <div>
+                <label class="label">Tag semua ke akun</label>
+                <select class="select" id="migrateAcctSel">
+                  <option value="">- Pilih akun -</option>
+                  ${acctOptions}
+                </select>
+              </div>
+            </div>`;
+        }
+        if (_migrateMode === 'amount') {
+          return `${tabs}
+            <div class="stack-sm">
+              <p class="text-sm" style="margin:0;">
+                Tag transaksi terlama sampai mencapai jumlah tertentu. Sisanya tetap di Cash.
+              </p>
+              <div>
+                <label class="label">Target jumlah (Rp)</label>
+                <input type="text" inputmode="numeric" class="input rupiah-input" id="migrateAmount" placeholder="500.000" />
+              </div>
+              <div>
+                <label class="label">Tag ke akun</label>
+                <select class="select" id="migrateAcctSel">
+                  <option value="">- Pilih akun -</option>
+                  ${acctOptions}
+                </select>
+              </div>
+              <div id="migratePreview" class="hint" style="padding:10px 12px; background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 6px; min-height:18px;">
+                Masukkan jumlah dulu untuk lihat berapa transaksi yang akan ter-tag.
+              </div>
+            </div>`;
+        }
+        // detail
+        const rowsHtml = sorted.map((t, i) => {
+          const sign = t.Type === 'Income' ? '+' : '−';
+          const amtCls = t.Type === 'Income' ? 'pos' : 'neg';
+          return `
+            <tr data-tx-id="${escapeAttr(t.id)}">
+              <td style="padding:6px 8px; font-size:11.5px; color:var(--text-secondary); white-space:nowrap;">${t.Date}</td>
+              <td style="padding:6px 8px; font-size:12px;">${escapeHtml(t['Transaction Name'] || '-')}</td>
+              <td style="padding:6px 8px; font-size:12px; text-align:right; white-space:nowrap; color:${t.Type === 'Income' ? 'var(--accent)' : 'var(--danger)'};">${sign} ${formatCompact(t.Value || 0)}</td>
+              <td style="padding:4px 6px;">
+                <select class="select migrate-row-acct" data-tx-id="${escapeAttr(t.id)}" style="font-size:11.5px; padding:4px 6px; min-width:90px;">
+                  <option value="">— skip —</option>
+                  ${acctOptions}
+                </select>
+              </td>
+            </tr>`;
+        }).join('');
+        return `${tabs}
+          <div class="stack-sm">
+            <p class="text-sm" style="margin:0;">
+              Pilih akun untuk tiap transaksi. Yang dibiarkan "skip" tetap di Cash.
+            </p>
+            <div style="max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
+              <table style="width:100%; border-collapse:collapse;">
+                <thead style="position:sticky; top:0; background:var(--bg-secondary); z-index:1;">
+                  <tr>
+                    <th style="padding:6px 8px; font-size:11px; text-align:left; color:var(--text-muted); font-weight:600;">Tanggal</th>
+                    <th style="padding:6px 8px; font-size:11px; text-align:left; color:var(--text-muted); font-weight:600;">Nama</th>
+                    <th style="padding:6px 8px; font-size:11px; text-align:right; color:var(--text-muted); font-weight:600;">Jumlah</th>
+                    <th style="padding:6px 8px; font-size:11px; text-align:left; color:var(--text-muted); font-weight:600;">Akun</th>
+                  </tr>
+                </thead>
+                <tbody>${rowsHtml}</tbody>
+              </table>
+            </div>
+            <div class="hint" style="margin-top:4px;">Tip: pakai dropdown "Tag semua di list ini ke" untuk batch-set lalu adjust per-row.</div>
+            <div style="display:flex; gap:8px; align-items:center; margin-top:4px;">
+              <span class="text-sm" style="color:var(--text-secondary);">Tag semua ke:</span>
+              <select class="select" id="migrateBulkSel" style="flex:1; max-width:180px; font-size:12px;">
+                <option value="">- Pilih akun -</option>
+                ${acctOptions}
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="migrateBulkApply">Apply ke semua</button>
+            </div>
+          </div>`;
+      };
+
+      // Helper invoked by every action that mutates state, so caller can
+      // re-render the affected views in one place.
+      const refreshAfterMigrate = () => {
+        saveState();
+        renderInitialBalances();
+        if (typeof renderDashboard === 'function') renderDashboard();
+        if (typeof renderTransactions === 'function') renderTransactions();
+      };
+
+      const wireBody = () => {
+        // Tab switch
+        document.querySelectorAll('.migrate-tab').forEach((b) => {
+          b.addEventListener('click', () => {
+            _migrateMode = b.dataset.migrateMode;
+            const mb = document.getElementById('modalBody');
+            if (mb) mb.innerHTML = buildBody();
+            wireBody();
+          });
+        });
+        // Amount mode: wire rupiah input + live preview
+        const amtInp = document.getElementById('migrateAmount');
+        const previewEl = document.getElementById('migratePreview');
+        if (amtInp) {
+          attachRupiahInput(amtInp);
+          const updatePreview = () => {
+            const target = parseRupiahDigits(amtInp.value);
+            if (!target) { previewEl.textContent = 'Masukkan jumlah dulu untuk lihat berapa transaksi yang akan ter-tag.'; return; }
+            let acc = 0; let cnt = 0;
+            for (const t of sorted) {
+              if (acc >= target) break;
+              acc += Number(t.Value || 0);
+              cnt++;
+            }
+            previewEl.innerHTML = `Akan tag <strong>${cnt} transaksi</strong> (terlama dulu) total <strong>${formatRupiah(acc)}</strong>.`;
+          };
+          amtInp.addEventListener('input', updatePreview);
+        }
+        // Detail mode: wire bulk-apply button
+        const bulkBtn = document.getElementById('migrateBulkApply');
+        if (bulkBtn) {
+          bulkBtn.addEventListener('click', () => {
+            const acct = document.getElementById('migrateBulkSel')?.value || '';
+            if (!acct) { toast('Pilih akun bulk dulu.', 'warning'); return; }
+            document.querySelectorAll('.migrate-row-acct').forEach((s) => { s.value = acct; });
+          });
+        }
+      };
+
       openModal({
-        title: `Migrasikan ${untagged.length} transaksi`,
-        body,
+        title: `Migrasikan ${untagged.length} transaksi tanpa akun`,
+        body: buildBody(),
         actions: [
           { label: 'Batal', className: 'btn-ghost', onClick: closeModal },
           {
             label: 'Migrasikan', className: 'btn-primary', onClick: () => {
-              const acct = (document.getElementById('migrateAcctSel')?.value || '').trim();
-              if (!acct) { toast('Pilih akun tujuan dulu.', 'warning'); return; }
               const now = Date.now();
               let count = 0;
+              if (_migrateMode === 'all') {
+                const acct = (document.getElementById('migrateAcctSel')?.value || '').trim();
+                if (!acct) { toast('Pilih akun tujuan dulu.', 'warning'); return; }
+                for (const t of state.transactions) {
+                  if (!t || t.Type === 'Transfer') continue;
+                  if ((t.account || '').trim()) continue;
+                  t.account = acct;
+                  t._modifiedAt = now;
+                  count++;
+                }
+                refreshAfterMigrate();
+                toast(`${count} transaksi ter-tag ke ${acct} ✓`, 'success');
+                closeModal();
+                return;
+              }
+              if (_migrateMode === 'amount') {
+                const acct = (document.getElementById('migrateAcctSel')?.value || '').trim();
+                const target = parseRupiahDigits(document.getElementById('migrateAmount')?.value || '');
+                if (!target) { toast('Masukkan jumlah target dulu.', 'warning'); return; }
+                if (!acct) { toast('Pilih akun tujuan dulu.', 'warning'); return; }
+                let acc = 0;
+                const idsToTag = new Set();
+                for (const t of sorted) {
+                  if (acc >= target) break;
+                  idsToTag.add(t.id);
+                  acc += Number(t.Value || 0);
+                }
+                for (const t of state.transactions) {
+                  if (!idsToTag.has(t.id)) continue;
+                  t.account = acct;
+                  t._modifiedAt = now;
+                  count++;
+                }
+                refreshAfterMigrate();
+                toast(`${count} transaksi (Rp ${acc.toLocaleString('id-ID')}) ter-tag ke ${acct} ✓`, 'success');
+                closeModal();
+                return;
+              }
+              // detail
+              const choices = new Map();
+              document.querySelectorAll('.migrate-row-acct').forEach((s) => {
+                const id = s.dataset.txId;
+                const v = (s.value || '').trim();
+                if (v) choices.set(id, v);
+              });
+              if (!choices.size) { toast('Pilih akun untuk minimal 1 transaksi.', 'warning'); return; }
               for (const t of state.transactions) {
-                if (!t || t.Type === 'Transfer') continue;
-                if ((t.account || '').trim()) continue;
-                t.account = acct;
+                if (!choices.has(t.id)) continue;
+                t.account = choices.get(t.id);
                 t._modifiedAt = now;
                 count++;
               }
-              saveState();
-              renderInitialBalances();
-              if (typeof renderDashboard === 'function') renderDashboard();
-              if (typeof renderTransactions === 'function') renderTransactions();
-              toast(`${count} transaksi ter-tag ke ${acct} ✓`, 'success');
+              refreshAfterMigrate();
+              toast(`${count} transaksi ter-tag ✓`, 'success');
               closeModal();
             }
           },
         ],
       });
+      // Wire after openModal injects body.
+      wireBody();
     }
 
     function renderInitialBalances() {
@@ -9962,14 +10149,31 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // "Nothing set up yet" empty state. True when every account opens at 0
       // (so total balance is purely from txns, if any) AND no goals are defined.
       const totalOpening = catalog.reduce((s, a) => s + Number(a.opening || 0), 0);
+      // Detect the specific "only Cash exists" case (no banks, eWallets,
+      // or investments added). When that's true AND default account is
+      // routed to Cash, show a more informative message — explains why
+      // their data is rolling up under Cash and offers the upgrade path.
+      const userAccountCount = catalog.filter((a) => a.name !== 'Cash' && a.type !== 'goal').length;
+      const onlyCash = userAccountCount === 0;
+      const cashIsDefault = state.settings &&
+        state.settings.defaultAccountEnabled &&
+        state.settings.defaultAccount === 'Cash';
       const nothingSetUp = totalOpening === 0 && goalsCatalog.length === 0;
       if (nothingSetUp) {
+        const title = (onlyCash && cashIsDefault)
+          ? 'Kamu belum setup Account Balance'
+          : 'Kamu belum setup Accounts Balance dan Goals kamu';
+        const subline = (onlyCash && cashIsDefault)
+          ? `<div class="ds-empty-sub" style="font-size:12.5px; color: var(--ds-card-muted); margin: 6px 0 4px; line-height:1.5;">Default Transaksi saat ini masuk ke <strong>Cash</strong>. Setup akun lain (BCA, GoPay, dll) untuk pisahkan.</div>`
+          : '';
+        const cta = (onlyCash && cashIsDefault) ? 'Setup Accounts &amp; Opening Balance' : 'Setup Akun &amp; Goals';
         accountsGroup.innerHTML = `
           <div class="ds-empty-state">
             <div class="ds-empty-icon">💰</div>
-            <div class="ds-empty-title">Kamu belum setup Accounts Balance dan Goals kamu</div>
+            <div class="ds-empty-title">${title}</div>
+            ${subline}
             <div class="ds-empty-actions">
-              <button class="btn btn-primary btn-sm" data-empty-cta="accounts">Setup Akun &amp; Goals</button>
+              <button class="btn btn-primary btn-sm" data-empty-cta="accounts">${cta}</button>
             </div>
             <div class="ds-empty-hint">(Optional)</div>
           </div>`;
@@ -10498,8 +10702,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const dir = dsDetailSort.dir === 'asc' ? 1 : -1;
       const sorted = [...txns].sort((a, b) => {
         const av = a[key], bv = b[key];
-        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-        return String(av || '').localeCompare(String(bv || '')) * dir;
+        let cmp;
+        if (typeof av === 'number' && typeof bv === 'number') cmp = (av - bv) * dir;
+        else cmp = String(av || '').localeCompare(String(bv || '')) * dir;
+        // Stable tiebreak by entry ts so two transactions on the same Date
+        // (or same Value, Category, etc) keep the user-typed-later one
+        // visibly above. Always desc on ts regardless of column dir —
+        // entry recency is independent of the sorted column.
+        if (cmp === 0) cmp = (Number(b.ts) || 0) - (Number(a.ts) || 0);
+        return cmp;
       });
       const totalPages = Math.max(1, Math.ceil(sorted.length / perPage));
       if (dsDetailPage > totalPages) dsDetailPage = totalPages;
@@ -10519,7 +10730,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return `
         <tr>
           <td>${start + i + 1}.</td>
-          <td title="${escapeAttr(fmtDate(t.Date))}">${fmtDate(t.Date)}</td>
+          <td title="${escapeAttr(fmtDate(t.Date))}${t.ts ? ' · entered ' + fmtDateTime(t.ts) : ''}">
+            ${fmtDate(t.Date)}${t.ts ? `<div class="text-xs text-muted" style="font-family: var(--font-mono); font-size:10.5px; line-height:1.1; margin-top:2px;">${fmtTime(t.ts)}</div>` : ''}
+          </td>
           <td class="ds-cell-filter" data-f-field="Type" data-f-value="${escapeHtml(typ)}" title="${escapeAttr(typ)}">${escapeHtml(typ)}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Name" data-f-value="${escapeHtml(name)}" title="${escapeAttr(name)}">${escapeHtml(name)}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Category" data-f-value="${escapeHtml(cat)}" title="${escapeAttr(cat)}">${escapeHtml(cat)}</td>
@@ -10568,7 +10781,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             : `
               <div class="ds-recent-amt ${amtCls}">
                 <div>${sign}${amount}</div>
-                <div class="ds-recent-meta" style="text-align:right; margin-top:2px;">${d || ''} ${mLbl}</div>
+                <div class="ds-recent-meta" style="text-align:right; margin-top:2px;">${d || ''} ${mLbl}${t.ts ? ` · ${fmtTime(t.ts)}` : ''}</div>
               </div>`;
 
           // .ds-cell-filter is omitted in edit mode so the detailCellHandler
@@ -17519,6 +17732,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Tombstones (added for sync conflict resolution). Pre-existing users
       // need this initialized to {} or mergeState will trip the null guard.
       if (!state.tombstones || typeof state.tombstones !== 'object') state.tombstones = {};
+      // One-time migration: flip defaultAccount → 'Cash' for users who
+      // never configured it. Only touches the truly-default state
+      // (defaultAccount empty AND enabled false). Users who actively
+      // disabled the toggle but kept a remembered account, or who picked
+      // BCA / GoPay / etc, are left alone — their explicit choice wins.
+      if (state.settings && !state.settings._defaultAccountMigratedV1) {
+        state.settings._defaultAccountMigratedV1 = true;
+        const dac = (state.settings.defaultAccount || '').trim();
+        if (!dac) {
+          state.settings.defaultAccountEnabled = true;
+          state.settings.defaultAccount = 'Cash';
+        }
+      }
       // Migrate legacy initialBalances entries to have stable `id`. Without
       // this, multi-device merge can't dedupe rows (banks/eWallets/etc were
       // pushed without ids historically). Runs once on boot per device,
