@@ -7573,6 +7573,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       } catch { return '—'; }
     }
+    // HH:MM only — used as a tiny secondary line under the transaction
+    // Date in Recent Transactions and the Sheets table so users can tell
+    // which entry was added later when multiple share the same Date.
+    function fmtTime(ts) {
+      const n = Number(ts || 0);
+      if (!n) return '';
+      try {
+        const d = new Date(n);
+        const pad = (x) => String(x).padStart(2, '0');
+        return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      } catch { return ''; }
+    }
 
     function renderAdminTable() {
       const search = (document.getElementById('admSearch')?.value || '').toLowerCase();
@@ -8323,6 +8335,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!name) return 0;
       const cat = getAccountCatalog().find((a) => a.name === name);
       const opening = cat ? cat.opening : 0;
+      // Cash is the implicit sink for untagged transactions. When a user
+      // logs "makan bakso 15rb" without specifying an account, money has
+      // to come from somewhere — most intuitive default is "uang dari
+      // dompet/cash". This makes Cash balance meaningful even for users
+      // who haven't bothered tagging accounts. Tagged transactions still
+      // go to their explicit account.
+      const isCashSink = (name === 'Cash');
       const delta = (state.transactions || []).reduce((s, t) => {
         const v = Number(t.Value || 0);
         // Transfer rows carry both endpoints (fromAccount, toAccount) and are
@@ -8333,7 +8352,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
           if ((t.fromAccount || '') === name) return s - v;
           return s;
         }
-        if ((t.account || '') !== name) return s;
+        const acct = (t.account || '').trim();
+        const matches = acct === name || (isCashSink && !acct);
+        if (!matches) return s;
         return s + (t.Type === 'Income' ? v : -v);
       }, 0);
       return opening + delta;
@@ -8346,6 +8367,74 @@ Use the user input carefully, but keep the output minimal and structured. Return
       { key: 'eWallets',    label: 'E-Wallets',           icon: '📱', placeholder: 'e.g. GoPay, OVO, Dana' },
     ];
 
+    // Bulk re-tag modal — assigns all currently-untagged Income/Expense
+    // transactions to a chosen account in one click. Touches t.account +
+    // t._modifiedAt so multi-device sync sees the change as a fresh edit.
+    // Skipped: Transfer rows (those use fromAccount/toAccount, not
+    // account; if a Transfer lacks both, it's malformed data — left alone).
+    function openMigrateUntaggedModal() {
+      const accountNames = getAccountNames();
+      if (!accountNames.length) {
+        toast('Tambah akun dulu di atas (Bank / E-Wallet / Investment), baru bisa migrasi.', 'warning');
+        return;
+      }
+      const untagged = (state.transactions || []).filter((t) =>
+        t && t.Type !== 'Transfer' && !((t.account || '').trim())
+      );
+      if (!untagged.length) {
+        toast('Tidak ada transaksi tanpa akun. Semua sudah ter-tag ✓', 'info');
+        return;
+      }
+      const acctOptions = accountNames
+        .map((n) => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`)
+        .join('');
+      const body = `
+        <div class="stack-sm">
+          <p class="text-sm" style="margin:0 0 4px;">
+            Ada <strong>${untagged.length} transaksi</strong> tanpa akun (saat ini dihitung di Cash).
+            Pilih akun untuk meng-tag semua sekaligus:
+          </p>
+          <div>
+            <label class="label">Tag semua ke akun</label>
+            <select class="select" id="migrateAcctSel">
+              <option value="">- Pilih akun -</option>
+              ${acctOptions}
+            </select>
+          </div>
+          <div class="hint" style="margin-top:4px;">
+            Hanya Income & Expense yang dimigrasikan. Transfer (yang punya from/to akun) tidak terpengaruh.
+          </div>
+        </div>`;
+      openModal({
+        title: `Migrasikan ${untagged.length} transaksi`,
+        body,
+        actions: [
+          { label: 'Batal', className: 'btn-ghost', onClick: closeModal },
+          {
+            label: 'Migrasikan', className: 'btn-primary', onClick: () => {
+              const acct = (document.getElementById('migrateAcctSel')?.value || '').trim();
+              if (!acct) { toast('Pilih akun tujuan dulu.', 'warning'); return; }
+              const now = Date.now();
+              let count = 0;
+              for (const t of state.transactions) {
+                if (!t || t.Type === 'Transfer') continue;
+                if ((t.account || '').trim()) continue;
+                t.account = acct;
+                t._modifiedAt = now;
+                count++;
+              }
+              saveState();
+              renderInitialBalances();
+              if (typeof renderDashboard === 'function') renderDashboard();
+              if (typeof renderTransactions === 'function') renderTransactions();
+              toast(`${count} transaksi ter-tag ke ${acct} ✓`, 'success');
+              closeModal();
+            }
+          },
+        ],
+      });
+    }
+
     function renderInitialBalances() {
       const host = document.getElementById('initBalanceBody');
       if (!host) return;
@@ -8355,6 +8444,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const cashVal = Number((ib.cash && ib.cash.value) || 0);
       const cashCurrent = accountBalance('Cash');
       const cashDelta = cashCurrent - cashVal;
+      // Count untagged Income/Expense transactions — these are implicitly
+      // counted toward Cash by accountBalance(). Show a hint so the user
+      // understands why their Cash row is non-zero even without tagging,
+      // and offer a one-click "Migrasikan ke akun lain" button to bulk-
+      // assign them to a real account if they prefer.
+      const untaggedCount = (state.transactions || []).filter((t) =>
+        t && t.Type !== 'Transfer' && !((t.account || '').trim())
+      ).length;
+      const untaggedHint = untaggedCount > 0
+        ? `<div class="ib-hint" style="margin-top:8px; padding:10px 12px; background: color-mix(in srgb, var(--accent) 8%, transparent); border-left: 3px solid var(--accent); border-radius: 6px; font-size: 12px; line-height: 1.5;">
+             💡 <strong>${untaggedCount} transaksi</strong> tanpa akun spesifik dihitung di Cash.
+             <button class="btn-link" id="btnMigrateUntagged" type="button" style="display:inline; padding:0; margin-left:4px;">Migrasikan ke akun lain →</button>
+           </div>`
+        : '';
       const cashBlock = `
         <div class="ib-group">
           <div class="ib-group-head">
@@ -8366,6 +8469,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             <input type="text" inputmode="numeric" class="input ib-input rupiah-input" id="ibCashInput" value="${cashVal ? formatRupiahDigits(cashVal) : ''}" placeholder="0" />
           </div>
           <div class="ib-current">Current: <strong>${formatCompact(cashCurrent)}</strong>${cashDelta !== 0 ? ` <span class="ib-delta ${cashDelta >= 0 ? 'pos' : 'neg'}">(${cashDelta >= 0 ? '+' : ''}${formatCompact(cashDelta)})</span>` : ''}</div>
+          ${untaggedHint}
         </div>`;
 
       const arrBlocks = ACCOUNT_GROUPS.map((g) => {
@@ -8450,6 +8554,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
       `;
 
       // Wire up interactions
+      // Bulk re-tag tool: lets the user retroactively assign all untagged
+      // transactions to a specific account. Useful when they started using
+      // the app casually (no account tagged) and later want to backfill.
+      const btnMigrateUntagged = document.getElementById('btnMigrateUntagged');
+      if (btnMigrateUntagged) {
+        btnMigrateUntagged.addEventListener('click', () => openMigrateUntaggedModal());
+      }
       const cashInput = document.getElementById('ibCashInput');
       if (cashInput) {
         // Wire thousand-separator behavior: digits-only with id-ID dot
@@ -9731,7 +9842,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const body = page.length ? page.map((t, i) => `
         <tr>
           <td>${start + i + 1}.</td>
-          <td>${fmtDate(t.Date)}</td>
+          <td>
+            ${fmtDate(t.Date)}${t.ts ? `<div class="text-xs text-muted" style="font-family: var(--font-mono); font-size:10.5px; line-height:1.1; margin-top:2px;">${fmtTime(t.ts)}</div>` : ''}
+          </td>
           <td class="ds-cell-filter" data-f-field="Type" data-f-value="${escapeHtml(t.Type || '')}">${escapeHtml(t.Type)}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Name" data-f-value="${escapeHtml(t['Transaction Name'] || '')}">${escapeHtml(t['Transaction Name'] || '')}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Category" data-f-value="${escapeHtml(t['Transaction Category'] || '')}">${escapeHtml(t['Transaction Category'] || '')}</td>
@@ -9761,7 +9874,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             </div>
             <div class="ds-recent-amt ${amtCls}">
               <div>${sign}${amount}</div>
-              <div class="ds-recent-meta" style="text-align:right; margin-top:2px;">${d || ''} ${mLbl}</div>
+              <div class="ds-recent-meta" style="text-align:right; margin-top:2px;">${d || ''} ${mLbl}${t.ts ? ` · ${fmtTime(t.ts)}` : ''}</div>
             </div>
           </div>`;
       }).join('') : `<div style="text-align:center; padding:22px; color: var(--ds-card-muted);">Belum ada transaksi</div>`;
@@ -11717,7 +11830,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const prev = mf.value;
       mf.innerHTML = '<option value="">Semua bulan</option>' + months.map((m) => `<option value="${m}" ${m === prev ? 'selected' : ''}>${m}</option>`).join('');
 
-      let rows = [...state.transactions].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      // Sort by transaction Date desc (newer date first), then by entry ts
+      // desc as tiebreaker. Without the Date primary, backdated entries
+      // (e.g. user adds "yesterday's lunch" today) jumped to the top
+      // because of fresh ts. Now they slot at their actual date position,
+      // and same-date entries are ordered by when the user typed them.
+      let rows = [...state.transactions].sort((a, b) =>
+        (b.Date || '').localeCompare(a.Date || '') || (Number(b.ts) || 0) - (Number(a.ts) || 0)
+      );
       if (search) {
         rows = rows.filter((t) =>
           String(t['Transaction Name']).toLowerCase().includes(search) ||
@@ -11745,7 +11865,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return `
           <tr data-row-id="${t.id}">
             <td class="text-muted mono">${i + 1}</td>
-            <td class="mono editable" data-field="Date" data-input="date">${t.Date}</td>
+            <td class="mono editable" data-field="Date" data-input="date">
+              ${t.Date}${t.ts ? `<div class="text-xs text-muted" style="font-family: var(--font-mono); font-size:10.5px; line-height:1.1; margin-top:2px;">${fmtTime(t.ts)}</div>` : ''}
+            </td>
             <td class="editable" data-field="Type" data-input="select:Income,Expense,Transfer"><span class="badge ${cls}">${t.Type}</span></td>
             <td class="editable" data-field="Transaction Name">${escapeHtml(t['Transaction Name'])} ${acctChip}</td>
             <td class="editable" data-field="Transaction Category">${escapeHtml(t['Transaction Category'])}</td>
