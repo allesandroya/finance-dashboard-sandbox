@@ -8693,24 +8693,27 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const defAccEnabled = !!(state.settings && state.settings.defaultAccountEnabled);
       const defAccName = (state.settings && state.settings.defaultAccount) || '';
       const renderDefaultAccountHint = (accountName) => {
-        if (!defAccEnabled || defAccName !== accountName) return '';
-        // Counting strategy is asymmetric between Cash and other accounts:
+        // Cash is the ONLY account where the hint shows regardless of
+        // whether Cash is the current default. Reasoning: Cash is the
+        // universal historical sink — users who logged tx for months
+        // before setting up BCA / GoPay will have huge piles of
+        // tagged-Cash data that needs migration affordance even after
+        // they've switched default to a different account. For non-Cash
+        // accounts, the hint is gated on "is current default" because
+        // explicit mentions like "pake BCA" shouldn't surface as
+        // migration candidates after the user moves default elsewhere.
+        if (accountName !== 'Cash') {
+          if (!defAccEnabled || defAccName !== accountName) return '';
+        }
+        // Counting strategy stays asymmetric:
         //
-        // - Cash (the universal default): count untagged + ALL tagged-Cash,
-        //   with or without _autoTagged flag. Reasoning:
-        //     a) Users almost never type "pake cash" explicitly — they
-        //        just say "beli bakso 15rb", which falls through to Cash.
-        //        So tagged-Cash ≈ auto-defaulted in practice.
-        //     b) Pre-_autoTagged historical data lacks the flag entirely;
-        //        being strict here would hide it and block migration.
-        //   The trade-off: a handful of explicit "pake cash" rows might
-        //   be over-counted, but that's far less harmful than orphaning
-        //   thousands of legacy Cash tx from the migration tool.
+        // - Cash: count untagged + ALL tagged-Cash (with or without flag).
+        //   Pre-_autoTagged historical data lacks the flag, and explicit
+        //   "pake cash" is rare in practice — being strict here would
+        //   orphan legacy data from the migration tool.
         //
-        // - Other accounts (BCA, GoPay, …): strict flag check. Explicit
-        //   mentions like "pake BCA" are common so we MUST exclude them
-        //   from the bulk migration prompt — those represent intentional
-        //   choices, not fall-through defaults.
+        // - Other accounts: strict flag check. Explicit "pake BCA" is
+        //   common and shouldn't be lumped into bulk migrations.
         const count = (state.transactions || []).filter((t) => {
           if (!t || t.Type === 'Transfer') return false;
           const acct = (t.account || '').trim();
