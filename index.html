@@ -6169,14 +6169,10 @@
        ======================================================================== */
     const CONFIG = Object.freeze({
       WORKER_URL: 'https://finance-bot-worker.allesandroya.workers.dev',
-      // Sandbox A/B test: trying mistral-small-latest as the default for
-      // ALL parse requests (text + image OCR companion). Small is ~5×
-      // cheaper on chat completions; if accuracy holds for typical
-      // inputs we keep it as the production default. If we see weak
-      // outputs (missed accounts, wrong categories, malformed JSON
-      // arrays in split mode), we'll fall back to the Tahap 1 plan:
-      // heuristic-driven small-vs-large picker.
-      AI_MODEL: 'mistral-small-latest',
+      // Default = Large for safety. Per-request pickModel() may downgrade
+      // to mistral-small-latest for simple text inputs (~3× cheaper). See
+      // pickModel() below for the routing rules.
+      AI_MODEL: 'mistral-large-latest',
     });
 
     // Session token key (Phase 8.1). Stored outside `cfb_v1` so signout can
@@ -7112,6 +7108,36 @@
     //   mode  - 'split' | 'summary'  (per-channel, see state.settings.aiMulti*)
     //   text  - the user's typed message (may include OCR'd image text appended by worker)
     //   images - optional array of {mime, base64, name} for OCR
+    // Heuristic model picker. Empirical findings from sandbox testing:
+    //   - mistral-small-latest IS reliable for: simple chat ("beli bakso 50k"),
+    //     multi-amount text ("bakso 50k, dimsum 20k, minum 40k"), and basic
+    //     transfers ("transfer 50k ke bca", "transfer ke kakak 1jt").
+    //   - mistral-small-latest IS NOT reliable for: image/PDF OCR companion
+    //     reasoning, percentage math (gajian 10jt 50% ke bca), and long /
+    //     complex multi-clause statements.
+    //
+    // So: route the hard cases to Large (~3× more expensive but accurate),
+    // route the common simple cases to Small (~3× cheaper, plenty accurate
+    // for the cases above).
+    function pickModel(text, images) {
+      // Image / PDF: ALWAYS Large — OCR markdown text needs better reasoning
+      // for structure extraction (line items, grand total, merchant name).
+      if (Array.isArray(images) && images.length > 0) return 'mistral-large-latest';
+      const txt = String(text || '').toLowerCase();
+      // Percentage math (e.g. "gajian 10jt, 50% nya ke bca") needs Large to
+      // compute the split correctly. Out_of_scope detection in
+      // classifyChatText already intercepts the most common percent-math
+      // shapes before they reach AI, but defense in depth.
+      if (/(\d+\s*%|\b\d+\s*persen\b)/.test(txt)) return 'mistral-large-latest';
+      // Long / complex text: Large. ~100 chars is the empirical threshold —
+      // shorter than this is almost always a single tx or short multi-tx
+      // that Small handles well; longer often involves narrative + multiple
+      // entities and Small starts to drop accounts or miscategorize.
+      if (txt.length > 100) return 'mistral-large-latest';
+      // Default for short / simple text + multi-amount + basic transfers.
+      return 'mistral-small-latest';
+    }
+
     async function parseWithAI(text, images, mode) {
       mode = (mode === 'split') ? 'split' : 'summary';
       if (!CONFIG.WORKER_URL || CONFIG.WORKER_URL.includes('REPLACE_ME')) {
@@ -7326,12 +7352,20 @@ ${outputSchemaBlock}
 Use the user input carefully, but keep the output minimal and structured. Return JSON ONLY.`;
 
       try {
+        // Per-request model selection: pickModel routes simple text inputs
+        // to Small (~3× cheaper) and falls back to Large for OCR-companion,
+        // percentage math, and long/complex text. CONFIG.AI_MODEL is the
+        // safety fallback only — never read directly here.
+        const chosenModel = pickModel(text, images);
+        // Light debug trace so you can watch routing in DevTools console
+        // during the sandbox A/B test. Safe to leave on; small payload.
+        try { console.log('[parseWithAI] model =', chosenModel, '· text len =', String(text || '').length, '· images =', (images || []).length); } catch {}
         // Images, when present, travel alongside the text. The worker decides
         // which vision-capable model to route to (see WORKER_PATCH.md for the
         // server-side change). Backward-compatible: payloads without `images`
         // work with the old worker unchanged.
         const payload = {
-          model: CONFIG.AI_MODEL,
+          model: chosenModel,
           systemPrompt,
           userText: text,
         };
