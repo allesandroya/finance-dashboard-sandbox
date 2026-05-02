@@ -2247,6 +2247,18 @@
     }
     .adm-link:hover { text-decoration: underline; }
 
+    /* Quota cell that has reached its daily limit. Soft red tint plus bold so
+       admins can scan the table at a glance for users hitting their cap. */
+    .adm-quota-hot {
+      color: #b91c1c;
+      font-weight: 600;
+      background: rgba(254, 226, 226, 0.45);
+    }
+    [data-theme="dark"] .adm-quota-hot {
+      color: #fca5a5;
+      background: rgba(127, 29, 29, 0.35);
+    }
+
     /* ============== TELEGRAM PREVIEW ============== */
     .tg-preview {
       display: flex;
@@ -5347,6 +5359,10 @@
                     <th class="num" data-sort="totalAttempts">Total Attempt</th>
                     <th class="num" data-sort="textAttempts">Text Attempt</th>
                     <th class="num" data-sort="ocrAttempts">OCR Attempt</th>
+                    <th class="num" data-sort="textTodayUsed" title="Pemakaian parse teks hari ini / kuota harian">Text Today</th>
+                    <th class="num" data-sort="ocrTodayUsed"  title="Pemakaian OCR foto hari ini / kuota harian">OCR Today</th>
+                    <th class="num" data-sort="textAvg"  title="Rata-rata parse teks per hari (rolling 30 hari)">Avg Text/d</th>
+                    <th class="num" data-sort="ocrAvg"   title="Rata-rata OCR per hari (rolling 30 hari)">Avg OCR/d</th>
                     <th data-sort="lastUsedAt">Last Used</th>
                   </tr>
                 </thead>
@@ -5732,6 +5748,11 @@
               <div class="card-title mb-3">🤖 AI Chat Bot</div>
               <div class="text-sm text-muted" style="margin-bottom:14px;">
                 Atur cara AI memperlakukan input yang berisi banyak transaksi sekaligus.
+              </div>
+              <!-- Daily quota card. Populated by renderQuotaCard() after a
+                   call to /api/quota. Hidden until login resolves. -->
+              <div id="quotaCard" style="margin-bottom:14px; padding:12px; border-radius:10px; background:var(--surface, #fff); border:1px solid var(--border, #e2e8f0);">
+                <div class="text-secondary" style="font-size:13px;">Memuat kuota harian…</div>
               </div>
               <div class="stack-sm">
                 <div>
@@ -7397,8 +7418,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
         }
         if (res.status === 402) {
           const data = await res.json().catch(() => ({}));
-          toast(data.error || 'Upgrade paket untuk pakai fitur ini.', 'warning');
-          throw new Error('Plan gate');
+          // 402 with `error: 'quota_exceeded'` is the new daily-quota gate.
+          // Older "plan gate" semantics are kept as a fallback for any legacy
+          // worker version that returns a different 402 shape.
+          if (data && data.error === 'quota_exceeded') {
+            // Refresh the Settings card asynchronously — no await, the modal
+            // is the immediate user feedback.
+            try { refreshQuotaCard(); } catch {}
+            showQuotaExceededModal(data);
+          } else {
+            toast(data.error || 'Upgrade paket untuk pakai fitur ini.', 'warning');
+          }
+          throw new Error('Quota gate');
         }
         if (res.status === 429) {
           const data = await res.json().catch(() => ({}));
@@ -7429,6 +7460,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
           p._method = 'worker';
           return finalizeAIResponse(p, text);
         });
+        // Quota counter just incremented server-side. Refresh the Settings
+        // card in the background so the user can see today's remaining
+        // budget after a successful parse.
+        try { refreshQuotaCard(); } catch {}
         // Defensive collapse: in summary mode the prompt forbids multiple
         // transactions, but Mistral occasionally still returns line items.
         // When that happens, pick the entry with the largest Value as the
@@ -7538,7 +7573,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         renderAdmin();
         fetchAdminUsers().then(() => renderAdmin());
       }
-      if (view === 'settings') { renderInitialBalances(); renderAccountPanel(); renderDefaultAccountCard(); renderInstallCard(); renderNotifCard(); }
+      if (view === 'settings') { renderInitialBalances(); renderAccountPanel(); renderDefaultAccountCard(); renderInstallCard(); renderNotifCard(); refreshQuotaCard(); }
       if (view === 'plans') renderPlans();
       updateMobileFab();
       closeSidebarMobile();
@@ -7719,12 +7754,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!tbody) return;
 
       if (admLoading) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:30px; color:var(--ds-card-muted);">Memuat data user…</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="16" style="text-align:center; padding:30px; color:var(--ds-card-muted);">Memuat data user…</td></tr>`;
         if (pager) pager.innerHTML = '';
         return;
       }
       if (admErrorMsg) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:30px; color:var(--danger);">${escapeHtml(admErrorMsg)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="16" style="text-align:center; padding:30px; color:var(--danger);">${escapeHtml(admErrorMsg)}</td></tr>`;
         if (pager) pager.innerHTML = '';
         return;
       }
@@ -7744,6 +7779,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
         let av = a[admSort.key];
         let bv = b[admSort.key];
         if (admSort.key === 'totalAttempts') { av = admTotalAttempts(a); bv = admTotalAttempts(b); }
+        // Quota / averages columns read from the enriched fields the worker
+        // adds to each user record (see handleAdminUsers in worker.js).
+        if (admSort.key === 'textTodayUsed') { av = Number(a._quota?.text?.used || 0); bv = Number(b._quota?.text?.used || 0); }
+        if (admSort.key === 'ocrTodayUsed')  { av = Number(a._quota?.ocr?.used  || 0); bv = Number(b._quota?.ocr?.used  || 0); }
+        if (admSort.key === 'textAvg')       { av = Number(a._averages?.textAvg || 0); bv = Number(b._averages?.textAvg || 0); }
+        if (admSort.key === 'ocrAvg')        { av = Number(a._averages?.ocrAvg  || 0); bv = Number(b._averages?.ocrAvg  || 0); }
         if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
         if (typeof av === 'boolean' || typeof bv === 'boolean') return ((av ? 1 : 0) - (bv ? 1 : 0)) * dir;
         return String(av || '').localeCompare(String(bv || '')) * dir;
@@ -7758,6 +7799,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const body = page.length ? page.map((u, i) => {
         const shortId = String(u.userId || '').slice(0, 14);
         const totalAtt = admTotalAttempts(u);
+        // Per-user quota — falls back to defaults when worker version doesn't
+        // emit `_quota`. Same for `_averages`. Keeps the table working with
+        // any pre-quota worker rollouts during deploy windows.
+        const q = u._quota || {};
+        const a = u._averages || {};
+        const tUsed  = Number(q.text?.used  || 0);
+        const tLim   = Number(q.text?.limit || 0);
+        const oUsed  = Number(q.ocr?.used   || 0);
+        const oLim   = Number(q.ocr?.limit  || 0);
+        const overridden = !!q.override;
+        const textCellCls = (tLim && tUsed >= tLim) ? 'num adm-quota-hot' : 'num';
+        const ocrCellCls  = (oLim && oUsed >= oLim) ? 'num adm-quota-hot' : 'num';
+        const overrideTag = overridden ? ' <span style="font-size:10px; color:#1d4ed8;" title="Custom quota override">●</span>' : '';
         return `
           <tr data-adm-userid="${escapeAttr(u.userId)}" style="cursor:pointer;" title="Klik untuk edit">
             <td>${start + i + 1}.</td>
@@ -7771,9 +7825,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
             <td class="num">${totalAtt}</td>
             <td class="num">${Number(u.textAttempts || 0)}</td>
             <td class="num">${Number(u.ocrAttempts || 0)}</td>
+            <td class="${textCellCls}">${tUsed}/${tLim || '—'}${overrideTag}</td>
+            <td class="${ocrCellCls}">${oUsed}/${oLim || '—'}</td>
+            <td class="num">${(a.textAvg ?? 0).toFixed ? a.textAvg.toFixed(1) : Number(a.textAvg || 0).toFixed(1)}</td>
+            <td class="num">${(a.ocrAvg  ?? 0).toFixed ? a.ocrAvg.toFixed(1)  : Number(a.ocrAvg  || 0).toFixed(1)}</td>
             <td class="adm-mono">${fmtDateTime(u.lastUsedAt)}</td>
           </tr>`;
-      }).join('') : `<tr><td colspan="12" style="text-align:center; padding:30px; color:var(--ds-card-muted);">Belum ada user terdaftar.</td></tr>`;
+      }).join('') : `<tr><td colspan="16" style="text-align:center; padding:30px; color:var(--ds-card-muted);">Belum ada user terdaftar.</td></tr>`;
 
       tbody.innerHTML = body;
 
@@ -7788,20 +7846,32 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
     function exportAdminCsv() {
       const users = admUsers;
-      const headers = ['User ID','Nama','Email','Nomor WA','Tanggal Daftar','Expiry Date','Active','Total Attempt','Text Attempt','OCR Attempt','Last Used'];
-      const rows = users.map((u) => [
-        u.userId,
-        u.name || '',
-        u.email || '',
-        u.waNumber || '',
-        fmtTimestamp(u.registeredAt),
-        fmtTimestamp(u.expiryAt),
-        u.active,
-        admTotalAttempts(u),
-        Number(u.textAttempts || 0),
-        Number(u.ocrAttempts || 0),
-        fmtDateTime(u.lastUsedAt),
-      ]);
+      const headers = ['User ID','Nama','Email','Nomor WA','Tanggal Daftar','Expiry Date','Active','Total Attempt','Text Attempt','OCR Attempt','Text Today','Text Limit','OCR Today','OCR Limit','Override','Avg Text/d','Avg OCR/d','History Days','Last Used'];
+      const rows = users.map((u) => {
+        const q = u._quota || {};
+        const a = u._averages || {};
+        return [
+          u.userId,
+          u.name || '',
+          u.email || '',
+          u.waNumber || '',
+          fmtTimestamp(u.registeredAt),
+          fmtTimestamp(u.expiryAt),
+          u.active,
+          admTotalAttempts(u),
+          Number(u.textAttempts || 0),
+          Number(u.ocrAttempts || 0),
+          Number(q.text?.used  || 0),
+          Number(q.text?.limit || 0),
+          Number(q.ocr?.used   || 0),
+          Number(q.ocr?.limit  || 0),
+          q.override ? 'yes' : 'no',
+          Number(a.textAvg || 0).toFixed(2),
+          Number(a.ocrAvg  || 0).toFixed(2),
+          Number(a.days    || 0),
+          fmtDateTime(u.lastUsedAt),
+        ];
+      });
       const csv = [headers, ...rows].map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
@@ -7826,6 +7896,25 @@ Use the user input carefully, but keep the output minimal and structured. Return
     function openAdminUserModal(user) {
       if (!user || !user.userId) return;
       const expiryDate = tsToDateInput(user.expiryAt);
+      // Quota fields enriched server-side in handleAdminUsers. Defaults
+      // protect against an older worker that doesn't emit them.
+      const q = user._quota || {};
+      const a = user._averages || {};
+      const ovr = user.quotaOverride || null;
+      // Free defaults match worker.js QUOTA_DEFAULTS. When admin clears the
+      // override, the user falls back to these. We also pre-fill the inputs
+      // with these values so admin can tweak from a known baseline.
+      const FREE_DEFAULTS = { ocr: 7, text: 15 };
+      const curTextLimit = Number(ovr?.text ?? q.text?.limit ?? FREE_DEFAULTS.text);
+      const curOcrLimit  = Number(ovr?.ocr  ?? q.ocr?.limit  ?? FREE_DEFAULTS.ocr);
+      const tUsed = Number(q.text?.used || 0);
+      const oUsed = Number(q.ocr?.used  || 0);
+      const tAvg  = Number(a.textAvg || 0);
+      const oAvg  = Number(a.ocrAvg  || 0);
+      const histDays = Number(a.days || 0);
+      const overrideStatus = ovr
+        ? `<span style="color:#1d4ed8; font-weight:600;">Custom override aktif</span>`
+        : `<span style="color:var(--text-tertiary);">Pakai default free (${FREE_DEFAULTS.text} teks · ${FREE_DEFAULTS.ocr} OCR)</span>`;
       const body = `
         <div class="stack-sm">
           <div>
@@ -7861,12 +7950,37 @@ Use the user input carefully, but keep the output minimal and structured. Return
           </div>
           <div class="row" style="gap:10px;">
             <div style="flex:1;">
-              <label class="label">Text Attempt</label>
+              <label class="label">Text Attempt (lifetime)</label>
               <input class="input" id="admEditText" type="number" min="0" value="${Number(user.textAttempts || 0)}" />
             </div>
             <div style="flex:1;">
-              <label class="label">OCR Attempt</label>
+              <label class="label">OCR Attempt (lifetime)</label>
               <input class="input" id="admEditOcr" type="number" min="0" value="${Number(user.ocrAttempts || 0)}" />
+            </div>
+          </div>
+
+          <hr style="border:none; border-top:1px solid var(--border); margin:8px 0;" />
+
+          <div>
+            <div style="font-weight:600; margin-bottom:4px;">Kuota harian</div>
+            <div class="hint" style="margin-bottom:10px;">${overrideStatus}</div>
+            <div class="row" style="gap:10px;">
+              <div style="flex:1;">
+                <label class="label">Limit Text / hari</label>
+                <input class="input" id="admEditQuotaText" type="number" min="0" max="100000" value="${curTextLimit}" />
+              </div>
+              <div style="flex:1;">
+                <label class="label">Limit OCR / hari</label>
+                <input class="input" id="admEditQuotaOcr"  type="number" min="0" max="10000"  value="${curOcrLimit}" />
+              </div>
+            </div>
+            <div class="hint" style="margin-top:6px; line-height:1.5;">
+              <b>Hari ini:</b> ${tUsed}/${curTextLimit} teks · ${oUsed}/${curOcrLimit} OCR<br>
+              <b>Rata-rata ${histDays} hari:</b> ${tAvg.toFixed(1)} teks/hari · ${oAvg.toFixed(1)} OCR/hari
+            </div>
+            <div class="row" style="gap:8px; margin-top:10px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-ghost btn-sm" id="admBtnResetToday" title="Zero today's counters tanpa ubah override">Reset hari ini</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="admBtnClearOverride" ${ovr ? '' : 'disabled'} title="Kembali ke default free (${FREE_DEFAULTS.text}/${FREE_DEFAULTS.ocr})">Hapus override</button>
             </div>
           </div>
         </div>`;
@@ -7889,6 +8003,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 const ms = new Date(expiryStr + 'T23:59:59Z').getTime();
                 if (!Number.isNaN(ms)) patch.expiryAt = ms;
               }
+              // Read the quota inputs. Save quota override only if the values
+              // differ from the *current* effective limits — avoids creating
+              // a redundant override that just mirrors free defaults, and
+              // avoids overwriting an existing override unnecessarily.
+              const newTextLimit = Math.max(0, Math.min(100000, Number(document.getElementById('admEditQuotaText').value) || 0));
+              const newOcrLimit  = Math.max(0, Math.min(10000,  Number(document.getElementById('admEditQuotaOcr').value)  || 0));
+              const quotaChanged = (newTextLimit !== curTextLimit) || (newOcrLimit !== curOcrLimit);
               try {
                 const res = await fetch(`${CONFIG.WORKER_URL}/api/admin/user/update`, {
                   method: 'POST',
@@ -7900,8 +8021,22 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+                if (quotaChanged) {
+                  const qres = await fetch(`${CONFIG.WORKER_URL}/api/admin/quota/set`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${getSessionToken()}`,
+                    },
+                    body: JSON.stringify({ userId: user.userId, ocr: newOcrLimit, text: newTextLimit }),
+                  });
+                  const qdata = await qres.json().catch(() => ({}));
+                  if (!qres.ok || !qdata.ok) throw new Error(qdata.error || `Quota update HTTP ${qres.status}`);
+                }
+
                 closeModal();
-                toast('User tersimpan ✓');
+                toast(quotaChanged ? 'User + kuota tersimpan ✓' : 'User tersimpan ✓');
                 await fetchAdminUsers();
                 renderAdmin();
               } catch (err) {
@@ -7910,6 +8045,48 @@ Use the user input carefully, but keep the output minimal and structured. Return
             }
           },
         ],
+      });
+
+      // Wire the two extra action buttons inside the modal body. They live
+      // outside the openModal `actions` footer because they're context-
+      // specific (only relevant for quota), not save/cancel primary actions.
+      const btnReset = document.getElementById('admBtnResetToday');
+      if (btnReset) btnReset.addEventListener('click', async () => {
+        if (!confirm(`Reset counters hari ini untuk ${user.name || user.email || user.userId}?`)) return;
+        try {
+          const res = await fetch(`${CONFIG.WORKER_URL}/api/admin/quota/reset-today`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getSessionToken()}` },
+            body: JSON.stringify({ userId: user.userId }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          toast('Counters hari ini di-reset ✓');
+          await fetchAdminUsers();
+          renderAdmin();
+          closeModal();
+        } catch (err) {
+          toast(err.message || 'Gagal reset.', 'error');
+        }
+      });
+      const btnClear = document.getElementById('admBtnClearOverride');
+      if (btnClear) btnClear.addEventListener('click', async () => {
+        if (!confirm(`Hapus quota override (kembali ke default free) untuk ${user.name || user.email || user.userId}?`)) return;
+        try {
+          const res = await fetch(`${CONFIG.WORKER_URL}/api/admin/quota/clear-override`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getSessionToken()}` },
+            body: JSON.stringify({ userId: user.userId }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          toast('Override dihapus ✓');
+          await fetchAdminUsers();
+          renderAdmin();
+          closeModal();
+        } catch (err) {
+          toast(err.message || 'Gagal hapus override.', 'error');
+        }
       });
     }
 
@@ -12536,6 +12713,134 @@ Use the user input carefully, but keep the output minimal and structured. Return
       document.documentElement.classList.remove('modal-open');
     }
 
+    // -------- Daily quota --------
+    // The worker enforces per-day caps on /api/ai/parse (free defaults: 7
+    // OCR + 15 text). When a parse hits the limit we surface this modal so
+    // the user knows what to do and when reset will happen, instead of just
+    // a transient toast that vanishes mid-flow.
+    function showQuotaExceededModal(data) {
+      const isOcr = (data && data.kind) === 'ocr';
+      const used  = Number(data?.used  || 0);
+      const limit = Number(data?.limit || 0);
+      const resetAt = Number(data?.resetAt || 0);
+      const kindLabel = isOcr ? 'foto / OCR struk' : 'parse teks (Chat Bot)';
+      const otherLabel = isOcr ? 'parse teks biasa' : 'OCR foto struk';
+      // Reset is at UTC midnight = 07:00 WIB. Format the local equivalent so
+      // the copy is unambiguous regardless of user's tz.
+      let resetCopy = 'Kuota direset jam 07:00 WIB.';
+      if (resetAt) {
+        try {
+          const d = new Date(resetAt);
+          const fmt = new Intl.DateTimeFormat('id-ID', {
+            timeZone: 'Asia/Jakarta',
+            hour: '2-digit', minute: '2-digit',
+            day: 'numeric', month: 'short',
+          });
+          resetCopy = `Kuota direset ${fmt.format(d)} WIB.`;
+        } catch {}
+      }
+      const body = `
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div aria-hidden="true" style="font-size:28px;">${isOcr ? '📷' : '💬'}</div>
+            <div>
+              <div style="font-weight:600;">Kuota harian ${escapeHtml(kindLabel)} habis</div>
+              <div class="text-secondary" style="font-size:13px;">${used}/${limit} terpakai hari ini.</div>
+            </div>
+          </div>
+          <div class="text-secondary" style="font-size:13px; line-height:1.5;">
+            ${escapeHtml(resetCopy)} Sementara itu, kamu masih bisa pakai <b>${escapeHtml(otherLabel)}</b>,
+            atau input transaksi manual lewat tombol ＋ Tambah.
+          </div>
+          <div class="text-secondary" style="font-size:12px; line-height:1.5; padding:8px 10px; border-radius:8px; background:var(--surface-2, #f1f5f9);">
+            Butuh kuota lebih besar? Hubungi admin via WhatsApp untuk pengaturan ulang per akun.
+          </div>
+        </div>
+      `;
+      openModal({
+        title: 'Kuota harian habis',
+        body,
+        actions: [
+          { label: 'OK', className: 'btn-primary', onClick: closeModal },
+        ],
+      });
+    }
+
+    // Cached fetch of /api/quota — used by the Settings card. Returns the
+    // full payload or null on error. We don't aggressively cache because
+    // counters change per parse; the card refetches whenever Settings opens
+    // and after every successful parse.
+    async function fetchMyQuota() {
+      if (!CONFIG.WORKER_URL || CONFIG.WORKER_URL.includes('REPLACE_ME')) return null;
+      try {
+        const res = await fetch(CONFIG.WORKER_URL + '/api/quota', {
+          method: 'GET',
+          headers: { ...authHeaders() },
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (data && data.ok && data.quota) ? data.quota : null;
+      } catch {
+        return null;
+      }
+    }
+
+    // Re-render the Settings quota card from /api/quota. Safe to call when
+    // the card isn't mounted (no-op).
+    async function refreshQuotaCard() {
+      const card = document.getElementById('quotaCard');
+      if (!card) return;
+      const q = await fetchMyQuota();
+      renderQuotaCard(q);
+    }
+
+    function renderQuotaCard(q) {
+      const card = document.getElementById('quotaCard');
+      if (!card) return;
+      if (!q) {
+        card.innerHTML = '<div class="text-secondary" style="font-size:13px;">Kuota tidak tersedia (login dulu).</div>';
+        return;
+      }
+      const ocrUsed   = Number(q.ocr?.used   || 0);
+      const ocrLimit  = Number(q.ocr?.limit  || 0);
+      const textUsed  = Number(q.text?.used  || 0);
+      const textLimit = Number(q.text?.limit || 0);
+      const ocrPct  = ocrLimit  ? Math.min(100, Math.round((ocrUsed  / ocrLimit ) * 100)) : 0;
+      const textPct = textLimit ? Math.min(100, Math.round((textUsed / textLimit) * 100)) : 0;
+      let resetCopy = 'reset 07:00 WIB';
+      if (q.resetAt) {
+        try {
+          const d = new Date(Number(q.resetAt));
+          const fmt = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' });
+          resetCopy = `reset ${fmt.format(d)} WIB`;
+        } catch {}
+      }
+      const overrideBadge = q.override
+        ? `<span class="badge" style="background:#dbeafe; color:#1d4ed8; font-size:11px; padding:2px 6px; border-radius:4px;">custom</span>`
+        : '';
+      const row = (label, used, limit, pct, color) => `
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px;">
+            <span>${escapeHtml(label)}</span>
+            <span class="text-secondary"><b style="color:var(--text-primary, inherit);">${used}</b> / ${limit}</span>
+          </div>
+          <div style="height:6px; border-radius:3px; background:var(--surface-2, #e2e8f0); overflow:hidden;">
+            <div style="height:100%; width:${pct}%; background:${color}; transition:width .3s;"></div>
+          </div>
+        </div>
+      `;
+      card.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-weight:600; font-size:14px;">Kuota harian Chat Bot ${overrideBadge}</div>
+            <div class="text-secondary" style="font-size:12px;">${escapeHtml(resetCopy)}</div>
+          </div>
+          ${row('Parse teks',  textUsed, textLimit, textPct, textPct >= 90 ? '#dc2626' : (textPct >= 70 ? '#f59e0b' : '#10b981'))}
+          ${row('Foto / OCR',  ocrUsed,  ocrLimit,  ocrPct,  ocrPct  >= 90 ? '#dc2626' : (ocrPct  >= 70 ? '#f59e0b' : '#10b981'))}
+        </div>
+      `;
+    }
+
     function openTxnModal(txn, onSave, opts = {}) {
       const t = { ...txn };
       const acctOptions = (selected) => getAccountNames()
@@ -14704,6 +15009,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const n = state.settings && state.settings.notif;
         if (n && (n.daily || n.weekly)) { pushSyncSubscription().catch(() => {}); }
       } catch {}
+      // Pull today's quota state so the Settings card is current as soon as
+      // the user opens it. Best-effort — if it fails, the card will retry
+      // when the Settings view is opened.
+      try { refreshQuotaCard(); } catch {}
     }
     // Sidebar logout icon. Keeps the user in the app (anonymous mode) instead
     // of showing the fullscreen #login gate, so the auth-locked features
