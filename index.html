@@ -15859,6 +15859,27 @@ Use the user input carefully, but keep the output minimal and structured. Return
           }
         }
       }
+      // Strip demo data — `_isDemo: true` is a per-device exploration flag.
+      // Without this filter, turning on Demo Mode on Device A would push
+      // 1798 fake transactions plus demo accounts/goals/recurring/budgets
+      // up to KV, polluting the user's real cloud state and propagating
+      // to every other device on next pull. Demo stays local; real data
+      // continues to sync normally even while Demo Mode is on.
+      const stripDemo = (arr) => Array.isArray(arr) ? arr.filter((x) => !x || !x._isDemo) : arr;
+      if (Array.isArray(clone.transactions)) clone.transactions = stripDemo(clone.transactions);
+      if (Array.isArray(clone.recurring))    clone.recurring    = stripDemo(clone.recurring);
+      if (Array.isArray(clone.budgets))      clone.budgets      = stripDemo(clone.budgets);
+      if (Array.isArray(clone.goals))        clone.goals        = stripDemo(clone.goals);
+      if (clone.initialBalances) {
+        const ib = clone.initialBalances;
+        ib.banks       = stripDemo(ib.banks);
+        ib.investments = stripDemo(ib.investments);
+        ib.eWallets    = stripDemo(ib.eWallets);
+        // cash is a single object, not an array. If it was seeded by demo,
+        // reset to default { value: 0 } so cloud doesn't carry the demo
+        // 500k balance.
+        if (ib.cash && ib.cash._isDemo) ib.cash = { value: 0 };
+      }
       return clone;
     }
 
@@ -16026,6 +16047,24 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
     function mergeState(local, remote) {
       if (!remote || typeof remote !== 'object') return local;
+      // Defensive recovery: if cloud was polluted by an older client that
+      // pushed _isDemo records (before stateForSync started filtering),
+      // drop them on the way in so demo data never comes back via merge.
+      const stripDemo = (arr) => Array.isArray(arr) ? arr.filter((x) => !x || !x._isDemo) : arr;
+      const cleanRemote = { ...remote };
+      if (Array.isArray(cleanRemote.transactions)) cleanRemote.transactions = stripDemo(cleanRemote.transactions);
+      if (Array.isArray(cleanRemote.recurring))    cleanRemote.recurring    = stripDemo(cleanRemote.recurring);
+      if (Array.isArray(cleanRemote.budgets))      cleanRemote.budgets      = stripDemo(cleanRemote.budgets);
+      if (Array.isArray(cleanRemote.goals))        cleanRemote.goals        = stripDemo(cleanRemote.goals);
+      if (cleanRemote.initialBalances) {
+        const ib = { ...cleanRemote.initialBalances };
+        ib.banks       = stripDemo(ib.banks);
+        ib.investments = stripDemo(ib.investments);
+        ib.eWallets    = stripDemo(ib.eWallets);
+        if (ib.cash && ib.cash._isDemo) ib.cash = { value: 0 };
+        cleanRemote.initialBalances = ib;
+      }
+      remote = cleanRemote;
       const out = { ...local };
 
       // Tombstones: union, max ts wins. Local wins on tie (recently-deleted
