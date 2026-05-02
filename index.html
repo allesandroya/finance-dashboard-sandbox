@@ -8363,7 +8363,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           </div>
           <div class="ib-row ib-row-cash">
             <label class="ib-label">Amount</label>
-            <input type="number" inputmode="decimal" class="input ib-input" id="ibCashInput" value="${cashVal || ''}" placeholder="0" />
+            <input type="text" inputmode="numeric" class="input ib-input rupiah-input" id="ibCashInput" value="${cashVal ? formatRupiahDigits(cashVal) : ''}" placeholder="0" />
           </div>
           <div class="ib-current">Current: <strong>${formatCompact(cashCurrent)}</strong>${cashDelta !== 0 ? ` <span class="ib-delta ${cashDelta >= 0 ? 'pos' : 'neg'}">(${cashDelta >= 0 ? '+' : ''}${formatCompact(cashDelta)})</span>` : ''}</div>
         </div>`;
@@ -8384,7 +8384,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               <div class="ib-row-wrap">
                 <div class="ib-row" data-group="${g.key}" data-idx="${idx}">
                   <input type="text" class="input ib-name" value="${escapeHtml(row.name || '')}" placeholder="${g.placeholder}" data-field="name" />
-                  <input type="number" inputmode="decimal" class="input ib-value" value="${row.value || ''}" placeholder="0" data-field="value" />
+                  <input type="text" inputmode="numeric" class="input ib-value rupiah-input" value="${row.value ? formatRupiahDigits(row.value) : ''}" placeholder="0" data-field="value" />
                   <button class="btn btn-icon btn-sm ib-del" aria-label="Delete">✕</button>
                 </div>
                 ${currentHtml}
@@ -8421,7 +8421,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               <div class="ib-row-wrap">
                 <div class="ib-row ib-row-goal" data-group="goals" data-idx="${idx}">
                   <input type="text" class="input ib-name" value="${escapeHtml(g.name || '')}" placeholder="e.g. Emergency Fund, Laptop Baru" data-field="name" />
-                  <input type="number" inputmode="decimal" class="input ib-value" value="${g.target || ''}" placeholder="Target" data-field="target" />
+                  <input type="text" inputmode="numeric" class="input ib-value rupiah-input" value="${g.target ? formatRupiahDigits(g.target) : ''}" placeholder="Target" data-field="target" />
                   <button class="btn btn-icon btn-sm ib-edit-goal" data-idx="${idx}" aria-label="Edit details">✎</button>
                   <button class="btn btn-icon btn-sm ib-del" aria-label="Delete">✕</button>
                 </div>
@@ -8452,8 +8452,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Wire up interactions
       const cashInput = document.getElementById('ibCashInput');
       if (cashInput) {
+        // Wire thousand-separator behavior: digits-only with id-ID dot
+        // formatting (5.000.000). Same helper used by all .rupiah-input
+        // fields elsewhere in the app.
+        attachRupiahInput(cashInput);
         cashInput.addEventListener('input', (e) => {
-          state.initialBalances.cash.value = Number(e.target.value) || 0;
+          state.initialBalances.cash.value = parseRupiahDigits(e.target.value);
           // Bump _modifiedAt for sync merge tiebreak.
           state.initialBalances.cash._modifiedAt = Date.now();
           saveState();
@@ -8510,12 +8514,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
       host.querySelectorAll('.ib-row[data-group]').forEach((row) => {
         const key = row.dataset.group;
         const idx = Number(row.dataset.idx);
+        // Wire thousand-separator on every numeric input in this row.
+        // Skips name fields (text-only). Without this attachment, the
+        // input would still capture digits but not auto-format with dots.
+        row.querySelectorAll('input.rupiah-input').forEach((inp) => attachRupiahInput(inp));
         row.querySelectorAll('input').forEach((inp) => {
           inp.addEventListener('input', (e) => {
             const field = e.target.dataset.field;
             if (!state.initialBalances[key][idx]) return;
             const numericField = field === 'value' || field === 'target';
-            state.initialBalances[key][idx][field] = numericField ? (Number(e.target.value) || 0) : e.target.value;
+            state.initialBalances[key][idx][field] = numericField
+              ? parseRupiahDigits(e.target.value)
+              : e.target.value;
             // Bump _modifiedAt so cloud merge picks this device's edit
             // when the same row is edited concurrently from another device.
             state.initialBalances[key][idx]._modifiedAt = Date.now();
