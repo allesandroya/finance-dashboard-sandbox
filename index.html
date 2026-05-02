@@ -8409,16 +8409,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return;
       }
       const src = (sourceAccount || '').trim();
-      // Build the candidate-set predicate. Mirrors renderDefaultAccountHint:
-      // only auto-tagged tx are migration candidates so explicit user
-      // choices (e.g. "pake BCA") aren't swept into the bulk move. Cash
-      // additionally includes truly-untagged because the Cash sink in
-      // accountBalance treats those as Cash too.
+      // Mirrors renderDefaultAccountHint's asymmetric counting strategy
+      // so the modal pulls exactly the same set of transactions the hint
+      // claims exist:
+      //   - Cash: untagged + ALL tagged-Cash (flag-less or not). Pragmatic
+      //     because explicit "pake cash" is rare AND historical data has
+      //     no _autoTagged flag.
+      //   - Other accounts: strict flag check (explicit "pake BCA" stays).
+      //   - Legacy untagged-only mode (no source passed): unchanged.
       const matchesSource = (t) => {
         if (!t || t.Type === 'Transfer') return false;
         const acct = (t.account || '').trim();
-        if (src === 'Cash' && !acct) return true; // untagged → Cash sink
         if (!src) return !acct; // legacy: only untagged
+        if (src === 'Cash') return !acct || acct === 'Cash';
         if (acct !== src) return false;
         return !!t._autoTagged;
       };
@@ -8691,24 +8694,28 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const defAccName = (state.settings && state.settings.defaultAccount) || '';
       const renderDefaultAccountHint = (accountName) => {
         if (!defAccEnabled || defAccName !== accountName) return '';
-        // Only count transactions that fell through to the default
-        // (auto-tagged via applyDefaultAccount). Transactions where the
-        // user explicitly mentioned an account ("beli bakso pake BCA")
-        // or where OCR detected one from a receipt set parsed.account
-        // BEFORE applyDefaultAccount runs, so they don't get the
-        // _autoTagged flag and aren't counted here. This keeps the hint
-        // accurate — it represents tx the user might genuinely want to
-        // migrate elsewhere, not their explicit choices.
+        // Counting strategy is asymmetric between Cash and other accounts:
         //
-        // Special case for Cash: also count truly-untagged tx (no
-        // account field), because accountBalance treats them as a Cash
-        // sink. They're clearly not an explicit user choice either.
+        // - Cash (the universal default): count untagged + ALL tagged-Cash,
+        //   with or without _autoTagged flag. Reasoning:
+        //     a) Users almost never type "pake cash" explicitly — they
+        //        just say "beli bakso 15rb", which falls through to Cash.
+        //        So tagged-Cash ≈ auto-defaulted in practice.
+        //     b) Pre-_autoTagged historical data lacks the flag entirely;
+        //        being strict here would hide it and block migration.
+        //   The trade-off: a handful of explicit "pake cash" rows might
+        //   be over-counted, but that's far less harmful than orphaning
+        //   thousands of legacy Cash tx from the migration tool.
+        //
+        // - Other accounts (BCA, GoPay, …): strict flag check. Explicit
+        //   mentions like "pake BCA" are common so we MUST exclude them
+        //   from the bulk migration prompt — those represent intentional
+        //   choices, not fall-through defaults.
         const count = (state.transactions || []).filter((t) => {
           if (!t || t.Type === 'Transfer') return false;
           const acct = (t.account || '').trim();
-          if (accountName === 'Cash' && !acct) return true; // untagged → Cash sink
-          if (acct !== accountName) return false;
-          return !!t._autoTagged;
+          if (accountName === 'Cash') return !acct || acct === 'Cash';
+          return acct === accountName && !!t._autoTagged;
         }).length;
         if (count === 0) return '';
         return `<div class="ib-hint" style="margin-top:8px; padding:10px 12px; background: color-mix(in srgb, var(--accent) 8%, transparent); border-left: 3px solid var(--accent); border-radius: 6px; font-size: 12px; line-height: 1.5;">
