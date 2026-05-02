@@ -17657,13 +17657,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
           if (row) row.classList.remove('notif-toggle-soon');
         }
       });
-      // Test push button: useful for verifying delivery during development.
-      // Hidden on production (inputin.app) — end users don't need a "skip the
-      // schedule" escape hatch. Sandbox keeps it for QA / cron debugging.
+      // Test push button: lets the user verify their subscription is alive
+      // and the Worker can reach them. Visible on every host (prod + sandbox)
+      // because users need it to debug "I toggled daily but never got a
+      // notification" — without this they can't tell if subscription failed,
+      // permission was denied, or the cron just hasn't fired yet. Shown
+      // when notif master is on AND user is logged in AND at least one
+      // server-push category (daily / weekly) is enabled.
       const testRow = document.getElementById('notifTestRow');
       if (testRow) {
-        const isProdHost = location.hostname === 'inputin.app' || location.hostname === 'www.inputin.app';
-        const showTest = !isProdHost && effectivelyOn && linked && (n.daily || n.weekly);
+        const showTest = effectivelyOn && linked && (n.daily || n.weekly);
         testRow.style.display = showTest ? '' : 'none';
       }
       // Time-picker rows: shown only when the parent toggle is checked AND the
