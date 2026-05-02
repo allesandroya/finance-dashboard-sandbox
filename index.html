@@ -2875,6 +2875,8 @@
     }
     .img-lightbox[hidden] { display: none; }
     @keyframes lightboxIn { from { opacity: 0; } to { opacity: 1; } }
+    /* Spinner for the Sync Now button while sync is in flight. */
+    @keyframes syncSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     .img-lightbox img {
       max-width: 100%;
       max-height: 100%;
@@ -5643,6 +5645,14 @@
                 </div>
                 <div class="hint" style="margin-top:8px;" id="syncStatusText">Sync otomatis tiap 30 detik &amp; saat ada perubahan.</div>
                 <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:8px;">
+                  <!-- Manual Sync Now: pull → merge → push, bypassing the
+                       30s debounce. Useful before switching devices, or
+                       when the user wants instant confirmation that
+                       changes landed in cloud. -->
+                  <button class="btn btn-primary btn-sm" id="btnSyncNow" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Sync Now
+                  </button>
                   <button class="btn btn-secondary btn-sm" id="btnAkunReloadCloud">Load account data</button>
                   <button class="btn btn-secondary btn-sm" id="btnAkunSignout">Keluar</button>
                 </div>
@@ -8444,6 +8454,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (cashInput) {
         cashInput.addEventListener('input', (e) => {
           state.initialBalances.cash.value = Number(e.target.value) || 0;
+          // Bump _modifiedAt for sync merge tiebreak.
+          state.initialBalances.cash._modifiedAt = Date.now();
           saveState();
           // Update header sums without full re-render (keeps focus).
           const group = e.target.closest('.ib-group');
@@ -8467,10 +8479,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
         btn.addEventListener('click', () => {
           const key = btn.dataset.group;
           if (!Array.isArray(state.initialBalances[key])) state.initialBalances[key] = [];
+          // Always assign id + _modifiedAt so multi-device sync can merge
+          // by id and pick the freshest edit when the same row is changed
+          // on two devices. Legacy id-less rows get id assigned at boot
+          // (see boot migration in init).
           if (key === 'goals') {
-            state.initialBalances[key].push({ id: uid(), name: '', value: 0, target: 0, dueDate: '' });
+            state.initialBalances[key].push({ id: uid(), name: '', value: 0, target: 0, dueDate: '', _modifiedAt: Date.now() });
           } else {
-            state.initialBalances[key].push({ name: '', value: 0 });
+            state.initialBalances[key].push({ id: uid(), name: '', value: 0, _modifiedAt: Date.now() });
           }
           saveState();
           renderInitialBalances();
@@ -8500,6 +8516,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
             if (!state.initialBalances[key][idx]) return;
             const numericField = field === 'value' || field === 'target';
             state.initialBalances[key][idx][field] = numericField ? (Number(e.target.value) || 0) : e.target.value;
+            // Bump _modifiedAt so cloud merge picks this device's edit
+            // when the same row is edited concurrently from another device.
+            state.initialBalances[key][idx]._modifiedAt = Date.now();
+            // Ensure id exists (legacy rows might not have one). Without
+            // this, merge can't dedupe and the row would duplicate after
+            // sync.
+            if (!state.initialBalances[key][idx].id) {
+              state.initialBalances[key][idx].id = uid();
+            }
             saveState();
             // Live-update subtotals + total (goals subtotal = sum of opening savings)
             const sub = state.initialBalances[key].reduce((s, a) => s + Number(a.value || 0), 0);
@@ -15423,6 +15448,31 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const btnAkunSignout = document.getElementById('btnAkunSignout');
       if (btnAkunSignout) btnAkunSignout.addEventListener('click', akunSignOut);
 
+      // Manual "Sync Now" — bypass debounce, do pull→merge→push instantly.
+      // Useful before switching devices or for "where did my edits go?" anxiety.
+      const btnSyncNow = document.getElementById('btnSyncNow');
+      if (btnSyncNow) btnSyncNow.addEventListener('click', async () => {
+        if (btnSyncNow.disabled) return;
+        const oldLabel = btnSyncNow.innerHTML;
+        btnSyncNow.disabled = true;
+        btnSyncNow.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-right:4px; animation: syncSpin 1s linear infinite;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Sinkron…';
+        const r = await syncNow();
+        btnSyncNow.disabled = false;
+        btnSyncNow.innerHTML = oldLabel;
+        if (r.ok) {
+          toast('✓ Sync selesai — semua data terbaru di cloud.', 'success');
+          // Update the status hint to "just now"
+          const statusEl = document.getElementById('syncStatusText');
+          if (statusEl) statusEl.textContent = `Sync terakhir: baru saja · auto tiap 30s.`;
+        } else if (r.reason === 'not-logged-in' || r.reason === 'no-userid' || r.reason === 'no-token') {
+          toast('Login dulu sebelum sync.', 'warning');
+        } else if (r.reason === 'localhost') {
+          toast('Sync nonaktif di localhost (CORS).', 'info');
+        } else {
+          toast(`Sync gagal: ${r.error || r.reason || 'unknown'}`, 'error');
+        }
+      });
+
       const btnAdminVerify = document.getElementById('btnAdminVerify');
       if (btnAdminVerify) btnAdminVerify.addEventListener('click', async () => {
         const inp = document.getElementById('adminSecretInput');
@@ -16026,6 +16076,29 @@ Use the user input carefully, but keep the output minimal and structured. Return
       return sorted;
     }
 
+    // initialBalances merge: cash is a single object (newer _modifiedAt
+    // wins); banks/investments/eWallets/goals are arrays merged by id
+    // with newer _modifiedAt as tiebreak. Without this, account balances
+    // set on Device A never reach Device B because mergeState used to
+    // keep `local.initialBalances` wholesale.
+    function _mergeInitialBalances(localIB, remoteIB) {
+      const a = localIB || {};
+      const b = remoteIB || {};
+      const out = {};
+      // Cash: pick the side with newer _modifiedAt. Fallback to local.
+      const aCash = a.cash || { value: 0 };
+      const bCash = b.cash || { value: 0 };
+      const aMod = Number(aCash._modifiedAt || 0);
+      const bMod = Number(bCash._modifiedAt || 0);
+      out.cash = bMod > aMod ? bCash : aCash;
+      // Array groups: merge by id, newer _modifiedAt wins.
+      for (const key of ['banks', 'investments', 'eWallets', 'goals']) {
+        out[key] = _mergeListById(a[key], b[key], 'id');
+        // _mergeListById uses _tsOf which prefers _modifiedAt over ts.
+      }
+      return out;
+    }
+
     function _mergeListByKey(localList, remoteList, keyFn) {
       const map = new Map();
       for (const r of (remoteList || [])) {
@@ -16096,8 +16169,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (Array.isArray(local.recurring) || Array.isArray(remote.recurring)) {
         out.recurring = _mergeListById(local.recurring, remote.recurring, 'id');
       }
-      // initialBalances + settings + auth + sheetTab + dashboardRange etc:
-      // keep local. Per-device prefs.
+      // initialBalances: per-row merge by id with _modifiedAt tiebreak.
+      // Previously kept-local wholesale, which meant balances set on one
+      // device never reached others. Now Device A and Device B both
+      // converge on the same set of accounts after a sync round.
+      if (local.initialBalances || remote.initialBalances) {
+        out.initialBalances = _mergeInitialBalances(local.initialBalances, remote.initialBalances);
+      }
+      // settings + auth + sheetTab + dashboardRange etc: keep local.
+      // Per-device prefs that shouldn't sync.
       return out;
     }
 
@@ -16150,6 +16230,65 @@ Use the user input carefully, but keep the output minimal and structured. Return
           toast('Data disinkronkan dari device lain ✓');
         }
       } catch {}
+    }
+
+    // Manual "Sync Now" — pull, merge, then push. Bypasses the 30s
+    // debounce so the user can immediately see their edits land in
+    // cloud before switching devices. Order matters: pulling first
+    // means we merge any in-flight edits from another device before
+    // overwriting cloud — same principle as `git pull --rebase` before
+    // pushing. Returns a status string for UI to render.
+    async function syncNow() {
+      if (isLocalOrigin()) return { ok: false, reason: 'localhost' };
+      if (!isLoggedIn()) return { ok: false, reason: 'not-logged-in' };
+      const uid = state.auth?.userId;
+      if (!uid) return { ok: false, reason: 'no-userid' };
+      const token = getSessionToken();
+      if (!token) return { ok: false, reason: 'no-token' };
+
+      // Cancel any pending debounced push so we don't fire twice.
+      if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
+
+      try {
+        // 1) PULL — fetch cloud, merge into local. Skips if cloud
+        //    hasn't advanced since last pull.
+        const pullRes = await fetch(`${CONFIG.WORKER_URL}/api/sync/pull`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (pullRes.ok) {
+          const pullData = await pullRes.json().catch(() => ({}));
+          if (pullData.ok && pullData.exists && pullData.state) {
+            const cloudUpdatedAt = Number(pullData.updatedAt || 0);
+            const merged = mergeState(state, pullData.state);
+            const keepAuth = state.auth;
+            state = { ...merged, auth: { ...keepAuth, lastPullAt: cloudUpdatedAt, lastSyncAt: cloudUpdatedAt } };
+            try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+          }
+        }
+
+        // 2) PUSH — send merged state immediately.
+        try { pruneTombstones(); } catch {}
+        const pushRes = await fetch(CONFIG.WORKER_URL + '/api/sync/push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ state: stateForSync(), deviceLabel: deviceLabel() }),
+        });
+        if (!pushRes.ok) return { ok: false, reason: 'push-failed', status: pushRes.status };
+
+        state.auth.lastSyncAt = Date.now();
+        try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+
+        // 3) Re-render the active view so any merged-in changes are visible.
+        const activeView = document.querySelector('.view.active')?.id?.replace(/^view-/, '');
+        if (activeView) navigateTo(activeView);
+
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, reason: 'network', error: String(e?.message || e) };
+      }
     }
 
     function startSyncLoop() {
@@ -17248,6 +17387,24 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Tombstones (added for sync conflict resolution). Pre-existing users
       // need this initialized to {} or mergeState will trip the null guard.
       if (!state.tombstones || typeof state.tombstones !== 'object') state.tombstones = {};
+      // Migrate legacy initialBalances entries to have stable `id`. Without
+      // this, multi-device merge can't dedupe rows (banks/eWallets/etc were
+      // pushed without ids historically). Runs once on boot per device,
+      // and the assigned ids get pushed to cloud on next sync so future
+      // pulls see consistent ids across devices.
+      if (state.initialBalances) {
+        const _ensureIds = (arr) => {
+          if (!Array.isArray(arr)) return;
+          for (const row of arr) {
+            if (row && !row.id) row.id = uid();
+          }
+        };
+        _ensureIds(state.initialBalances.banks);
+        _ensureIds(state.initialBalances.investments);
+        _ensureIds(state.initialBalances.eWallets);
+        // goals already had `id` historically; double-check anyway.
+        _ensureIds(state.initialBalances.goals);
+      }
 
       // Fire the recurring-transaction materializer once per boot - catches
       // up any scheduled rows whose nextRunISO is on/before today. The
