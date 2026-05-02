@@ -4417,6 +4417,10 @@
       background: transparent; border: 1px solid var(--border);
       color: var(--text-tertiary); width: 36px; height: 36px; padding: 0;
       border-radius: 8px; cursor: pointer; font-size: 14px;
+      /* Default <button> text-align is `start`, which left-aligns the ×
+         glyph and looks off-center inside the square. Grid + place-items
+         centers it on both axes regardless of glyph metrics. */
+      display: grid; place-items: center; line-height: 1;
     }
     .ib-del:hover { color: var(--danger); border-color: var(--danger); }
     .ib-row-goal { grid-template-columns: 1fr 120px 36px 36px; }
@@ -4424,6 +4428,7 @@
       background: transparent; border: 1px solid var(--border);
       color: var(--text-tertiary); width: 36px; height: 36px; padding: 0;
       border-radius: 8px; cursor: pointer; font-size: 14px;
+      display: grid; place-items: center; line-height: 1;
     }
     .ib-edit-goal:hover { color: var(--accent); border-color: var(--accent); }
     .ib-row-wrap { display: flex; flex-direction: column; gap: 2px; }
@@ -5691,7 +5696,7 @@
               <div class="row-between" style="flex-wrap:wrap; gap:10px;">
                 <div>
                   <div style="font-weight:600;">Akun transaksi default</div>
-                  <div class="text-sm text-muted">Akun yang dipilih akan digunakan secara otomatis untuk transaksi baru.</div>
+                  <div class="text-sm text-muted">Dipakai otomatis untuk transaksi via Chat yang tidak menyebut akun tertentu.</div>
                 </div>
                 <div class="row">
                   <label class="switch">
@@ -8348,7 +8353,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         if (!enabled) hint.textContent = 'Aktifkan toggle di atas untuk memilih akun default.';
         else if (!names.length) hint.textContent = 'Belum ada akun. Tambahkan akun dulu di atas.';
         else if (!s.defaultAccount) hint.textContent = 'Pilih salah satu akun di atas.';
-        else hint.textContent = `Default: ${s.defaultAccount}. Dipakai otomatis untuk transaksi tanpa akun.`;
+        else hint.textContent = `Default: ${s.defaultAccount}. Dipakai otomatis untuk transaksi via Chat yang tidak menyebut akun tertentu.`;
       }
     }
     // Live per-account balance = opening + income tagged to it − expense from it.
@@ -17657,16 +17662,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
           if (row) row.classList.remove('notif-toggle-soon');
         }
       });
-      // Test push button: lets the user verify their subscription is alive
-      // and the Worker can reach them. Visible on every host (prod + sandbox)
-      // because users need it to debug "I toggled daily but never got a
-      // notification" — without this they can't tell if subscription failed,
-      // permission was denied, or the cron just hasn't fired yet. Shown
-      // when notif master is on AND user is logged in AND at least one
-      // server-push category (daily / weekly) is enabled.
+      // Test push button: useful for verifying delivery during development.
+      // Hidden on production (inputin.app) — once a user's subscription is
+      // confirmed working, the button is just clutter for them. Sandbox
+      // keeps it for QA / cron debugging. If we ever need it back on prod
+      // for diagnosis, drop the isProdHost check temporarily.
       const testRow = document.getElementById('notifTestRow');
       if (testRow) {
-        const showTest = effectivelyOn && linked && (n.daily || n.weekly);
+        const isProdHost = location.hostname === 'inputin.app' || location.hostname === 'www.inputin.app';
+        const showTest = !isProdHost && effectivelyOn && linked && (n.daily || n.weekly);
         testRow.style.display = showTest ? '' : 'none';
       }
       // Time-picker rows: shown only when the parent toggle is checked AND the
