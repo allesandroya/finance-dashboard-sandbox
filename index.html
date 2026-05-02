@@ -2973,6 +2973,17 @@
     .badge.transfer { background: rgba(99, 102, 241, 0.10); color: #4F46E5; border-color: transparent; }
     [data-theme="dark"] .badge.transfer { background: rgba(129, 140, 248, 0.18); color: #A5B4FC; }
 
+    /* Placeholder for missing fromAccount / toAccount on Transfer rows.
+       Used by fmtTransferRoute() — renders as a muted, italic em-dash
+       with a tooltip explaining how to resolve. Replaces the older "?"
+       string which read like a rendering glitch. */
+    .acct-blank {
+      color: var(--text-tertiary);
+      font-style: italic;
+      opacity: 0.7;
+      cursor: help;
+    }
+
     .acct-chip {
       display: inline-block;
       margin-left: 6px;
@@ -7634,6 +7645,36 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       } catch { return '—'; }
     }
+    // Render a Transfer's "from → to" route. When either endpoint is
+    // missing (AI parser couldn't infer the source from "transfer 5jt ke
+    // BCA" type input), the missing side renders as a muted em-dash with
+    // tooltip explaining how to fix it. Replaces the older `?` placeholder
+    // which looked like a typo / rendering bug.
+    //
+    // Returns inline HTML — caller is responsible for wrapping in
+    // <span class="acct-chip"> or similar if a chip frame is desired.
+    function fmtTransferRoute(t) {
+      const from = String((t && t.fromAccount) || '').trim();
+      const to   = String((t && t.toAccount)   || '').trim();
+      const blank = `<span class="acct-blank" title="Belum ditentukan — buka Edit untuk pilih akun">—</span>`;
+      return `${from ? escapeHtml(from) : blank} → ${to ? escapeHtml(to) : blank}`;
+    }
+    // Inline string for meta lines that show "Account" context after the
+    // Sub-Category. For Income/Expense returns the account name (or
+    // empty if untagged); for Transfer returns the from→to route.
+    // Shared by Recent Transactions + Detail card lists.
+    function fmtAccountMeta(t) {
+      if (!t) return '';
+      if (t.Type === 'Transfer') {
+        const from = String(t.fromAccount || '').trim();
+        const to   = String(t.toAccount   || '').trim();
+        if (!from && !to) return '';
+        return fmtTransferRoute(t);
+      }
+      const acct = String(t.account || '').trim();
+      return acct ? escapeHtml(acct) : '';
+    }
+
     // HH:MM only — used as a tiny secondary line under the transaction
     // Date in Recent Transactions and the Sheets table so users can tell
     // which entry was added later when multiple share the same Date.
@@ -9403,7 +9444,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const next = formatNextRun(r.nextRunISO);
         const sign = r.type === 'Transfer' ? '↔' : (r.type === 'Income' ? '+' : '−');
         const acctLine = r.type === 'Transfer'
-          ? `<span class="acct-chip">${escapeHtml(r.fromAccount || '?')} → ${escapeHtml(r.toAccount || '?')}</span>`
+          ? `<span class="acct-chip">${fmtTransferRoute({ fromAccount: r.fromAccount, toAccount: r.toAccount })}</span>`
           : (r.account ? `<span class="acct-chip">${escapeHtml(r.account)}</span>` : '');
         const inactiveTag = r.active ? '' : `<span class="rc-inactive-tag">Paused</span>`;
         return `
@@ -10173,7 +10214,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
       // Each content cell in Recent Transactions becomes a cross-filter trigger -
       // click Type to filter by Type, click Category to filter by Category, etc.
-      const body = page.length ? page.map((t, i) => `
+      // Sub-Category cell now also shows the Account chip inline (Transfer
+      // shows the from→to route via fmtTransferRoute) so users don't have
+      // to jump to Sheets to see which account a row belongs to.
+      const body = page.length ? page.map((t, i) => {
+        const acctMeta = fmtAccountMeta(t);
+        const acctChipInline = acctMeta
+          ? ` <span class="acct-chip" style="margin-left:6px;" title="Akun">${acctMeta}</span>`
+          : '';
+        return `
         <tr>
           <td>${start + i + 1}.</td>
           <td>
@@ -10182,10 +10231,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <td class="ds-cell-filter" data-f-field="Type" data-f-value="${escapeHtml(t.Type || '')}">${escapeHtml(t.Type)}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Name" data-f-value="${escapeHtml(t['Transaction Name'] || '')}">${escapeHtml(t['Transaction Name'] || '')}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Category" data-f-value="${escapeHtml(t['Transaction Category'] || '')}">${escapeHtml(t['Transaction Category'] || '')}</td>
-          <td class="ds-cell-filter" data-f-field="Sub-Category" data-f-value="${escapeHtml(t['Sub-Category'] || '')}">${escapeHtml(t['Sub-Category'] || '')}</td>
+          <td class="ds-cell-filter" data-f-field="Sub-Category" data-f-value="${escapeHtml(t['Sub-Category'] || '')}">${escapeHtml(t['Sub-Category'] || '')}${acctChipInline}</td>
           <td class="num">${(t.Value || 0).toLocaleString('en-US')}</td>
-        </tr>
-      `).join('') : `<tr><td colspan="7" style="text-align:center; padding:22px; color: var(--ds-card-muted);">Belum ada transaksi</td></tr>`;
+        </tr>`;
+      }).join('') : `<tr><td colspan="7" style="text-align:center; padding:22px; color: var(--ds-card-muted);">Belum ada transaksi</td></tr>`;
 
       // Card-list variant - shown on mobile via CSS. Each row: icon | name+meta | amount.
       // Clicking an item opens a cross-filter on the Transaction Name (most intuitive here).
@@ -10199,12 +10248,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const amtCls = isTransfer ? 'transfer' : (isIncome ? 'income' : 'expense');
         const sign = isTransfer ? '↔' : (isIncome ? '+' : '−');
         const amount = (t.Value || 0).toLocaleString('id-ID');
+        // Mobile card meta: append the account / transfer route after
+        // Sub-Category so the user sees account context without opening
+        // the Edit modal. Transfer rows show "BCA → GoPay" or "— → BCA"
+        // when source is missing.
+        const acctMetaMobile = fmtAccountMeta(t);
+        const acctMetaMobileSuffix = acctMetaMobile
+          ? ` · ${isTransfer ? '↔ ' : '🏷 '}${acctMetaMobile}`
+          : '';
         return `
           <div class="ds-recent-item ds-cell-filter" data-f-field="Transaction Name" data-f-value="${escapeHtml(t['Transaction Name'] || '')}">
             <span class="cat-icon" style="--cat-tint: ${color};">${svg}</span>
             <div class="ds-recent-body">
               <div class="ds-recent-name">${escapeHtml(t['Transaction Name'] || '-')}</div>
-              <div class="ds-recent-meta">${escapeHtml(t['Transaction Category'] || '')}${t['Sub-Category'] ? ' · ' + escapeHtml(t['Sub-Category']) : ''}</div>
+              <div class="ds-recent-meta">${escapeHtml(t['Transaction Category'] || '')}${t['Sub-Category'] ? ' · ' + escapeHtml(t['Sub-Category']) : ''}${acctMetaMobileSuffix}</div>
             </div>
             <div class="ds-recent-amt ${amtCls}">
               <div>${sign}${amount}</div>
@@ -10873,7 +10930,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
         // title attrs give hover tooltips when a long cell is ellipsised.
         // B-04: row Edit/Delete actions (mirrors the Sheets pattern so QA
         // reviewers can mutate transactions from Detail without jumping
-        // tabs).
+        // tabs). Sub-Category cell now also carries the Account chip
+        // (or Transfer route) inline so users see account context on
+        // Detail without needing to open Edit or jump to Sheets.
+        const acctMeta = fmtAccountMeta(t);
+        const acctChipInline = acctMeta
+          ? ` <span class="acct-chip" style="margin-left:6px;" title="Akun">${acctMeta}</span>`
+          : '';
         return `
         <tr>
           <td>${start + i + 1}.</td>
@@ -10883,7 +10946,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <td class="ds-cell-filter" data-f-field="Type" data-f-value="${escapeHtml(typ)}" title="${escapeAttr(typ)}">${escapeHtml(typ)}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Name" data-f-value="${escapeHtml(name)}" title="${escapeAttr(name)}">${escapeHtml(name)}</td>
           <td class="ds-cell-filter" data-f-field="Transaction Category" data-f-value="${escapeHtml(cat)}" title="${escapeAttr(cat)}">${escapeHtml(cat)}</td>
-          <td class="ds-cell-filter" data-f-field="Sub-Category" data-f-value="${escapeHtml(sub)}" title="${escapeAttr(sub)}">${escapeHtml(sub)}</td>
+          <td class="ds-cell-filter" data-f-field="Sub-Category" data-f-value="${escapeHtml(sub)}" title="${escapeAttr(sub)}">${escapeHtml(sub)}${acctChipInline}</td>
           <td class="num">${(t.Value || 0).toLocaleString('en-US')}</td>
           <td class="ds-row-actions" style="text-align:center; white-space:nowrap;">
             <button type="button" class="btn-icon" data-detail-edit="${escapeAttr(tid)}" title="Edit" aria-label="Edit">
@@ -10940,12 +11003,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
             ? ''
             : `data-f-field="Transaction Name" data-f-value="${escapeHtml(t['Transaction Name'] || '')}"`;
 
+          // Account context appended after Sub-Category (Transfer route
+          // for transfers; account name for I/E). Mirrors the mobile
+          // Recent Transactions card so both detail views show the same
+          // shape of meta line.
+          const acctMetaMobile = fmtAccountMeta(t);
+          const acctMetaMobileSuffix = acctMetaMobile
+            ? ` · ${isTransfer ? '↔ ' : '🏷 '}${acctMetaMobile}`
+            : '';
           return `
             <div class="${itemClasses}" ${filterAttrs}>
               <span class="cat-icon" style="--cat-tint: ${color};">${svg}</span>
               <div class="ds-recent-body">
                 <div class="ds-recent-name">${escapeHtml(t['Transaction Name'] || '-')}</div>
-                <div class="ds-recent-meta">${escapeHtml(t['Transaction Category'] || '')}${t['Sub-Category'] ? ' · ' + escapeHtml(t['Sub-Category']) : ''}</div>
+                <div class="ds-recent-meta">${escapeHtml(t['Transaction Category'] || '')}${t['Sub-Category'] ? ' · ' + escapeHtml(t['Sub-Category']) : ''}${acctMetaMobileSuffix}</div>
               </div>
               ${rightSide}
             </div>`;
@@ -11638,7 +11709,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const headerText = m.text || 'Oke, ini aku tangkap jadi:';
         // Transfer meta uses fromAccount/toAccount; regular rows use single account tag.
         const acctLine = isTransfer
-          ? `<span class="acct-chip">${escapeHtml(t.fromAccount || '?')} → ${escapeHtml(t.toAccount || '?')}</span>`
+          ? `<span class="acct-chip">${fmtTransferRoute(t)}</span>`
           : (t.account ? `<span class="acct-chip">🏷 ${escapeHtml(t.account)}</span>` : '');
         return `
           <div class="msg bot txn${enterCls}">
@@ -12220,7 +12291,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const sign = isTransfer ? '↔' : (t.Type === 'Income' ? '+' : '−');
         // Transfer rows show from→to in place of the single-account chip.
         const acctChip = isTransfer
-          ? `<span class="acct-chip" title="Transfer">${escapeHtml(t.fromAccount || '?')} → ${escapeHtml(t.toAccount || '?')}</span>`
+          ? `<span class="acct-chip" title="Transfer">${fmtTransferRoute(t)}</span>`
           : (t.account ? `<span class="acct-chip" title="Akun: ${escapeAttr(t.account)}">${escapeHtml(t.account)}</span>` : '');
         return `
           <tr data-row-id="${t.id}">
