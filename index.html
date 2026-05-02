@@ -5449,6 +5449,7 @@
                     <th>Name</th>
                     <th>Category</th>
                     <th>Sub-Category</th>
+                    <th style="width: 130px;">Account</th>
                     <th style="text-align:right;">Amount</th>
                     <th style="width: 90px;"></th>
                   </tr>
@@ -5996,6 +5997,14 @@
                     <div class="text-sm text-muted">Cara cepat input transaksi lewat chat AI.</div>
                   </div>
                   <button class="btn btn-secondary btn-sm" data-replay-tour="chat">Mulai</button>
+                </div>
+                <hr style="border:none; border-top:1px solid var(--border); margin:4px 0;" />
+                <div class="row-between" style="flex-wrap:wrap; gap:10px;">
+                  <div>
+                    <div style="font-weight:600;">📊 Sheets Tour</div>
+                    <div class="text-sm text-muted">Tabel transaksi & kategori — search, filter, edit, export CSV.</div>
+                  </div>
+                  <button class="btn btn-secondary btn-sm" data-replay-tour="sheets">Mulai</button>
                 </div>
                 <hr style="border:none; border-top:1px solid var(--border); margin:4px 0;" />
                 <div class="row-between" style="flex-wrap:wrap; gap:10px;">
@@ -12155,7 +12164,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
       const body = document.getElementById('txnTableBody');
       if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="6">${emptyState('Tidak ada transaksi.', 'Coba ubah filter atau tambah entry baru.')}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="9">${emptyState('Tidak ada transaksi.', 'Coba ubah filter atau tambah entry baru.')}</td></tr>`;
         return;
       }
 
@@ -12174,9 +12183,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
               ${t.Date}${t.ts ? `<div class="text-xs text-muted" style="font-family: var(--font-mono); font-size:10.5px; line-height:1.1; margin-top:2px;">${fmtTime(t.ts)}</div>` : ''}
             </td>
             <td class="editable" data-field="Type" data-input="select:Income,Expense,Transfer"><span class="badge ${cls}">${t.Type}</span></td>
-            <td class="editable" data-field="Transaction Name">${escapeHtml(t['Transaction Name'])} ${acctChip}</td>
+            <td class="editable" data-field="Transaction Name">${escapeHtml(t['Transaction Name'])}</td>
             <td class="editable" data-field="Transaction Category">${escapeHtml(t['Transaction Category'])}</td>
             <td class="editable" data-field="Sub-Category">${escapeHtml(t['Sub-Category'])}</td>
+            <td>${acctChip || '<span class="text-muted" style="font-size:11px;">—</span>'}</td>
             <td class="amount ${cls} editable" data-field="Value" data-input="number" style="text-align: right;">${sign} ${formatRupiah(t.Value)}</td>
             <td style="text-align: right;">
               <button class="btn-icon" title="Edit (form)" data-txn-edit="${t.id}">
@@ -17033,6 +17043,69 @@ Use the user input carefully, but keep the output minimal and structured. Return
         ],
       },
 
+      sheets: {
+        // Sheets is the spreadsheet-style raw view of every transaction
+        // and the master Categories list. Power users live here for bulk
+        // edit, search, and CSV export. Tour walks the toolbar, the
+        // table columns (incl. the new Account column), and the inline-
+        // edit affordance.
+        key: 'tour_v1_sheets_done',
+        label: 'Sheets Tour',
+        desc: 'Tabel transaksi & kategori — search, filter, edit cell, export CSV.',
+        startView: 'sheets',
+        steps: [
+          {
+            id: 'sheets-welcome',
+            target: null,
+            title: 'Selamat datang di Sheets 📊',
+            body: 'Tampilan spreadsheet untuk semua transaksi dan kategori kamu. Mirip Google Sheets — bisa search, filter, edit cell langsung, dan export ke CSV. Yuk lihat tools-nya.',
+            before: () => { state.sheetTab = 'transactions'; renderSheets(); },
+          },
+          {
+            id: 'sheets-tabs',
+            target: '#sheetTabs',
+            title: 'Tab antar tabel',
+            body: 'Switch antara Transactions (semua catatan keuangan-mu), Categories (master kategori + sub-kategori), dan Dictionary (alias merchant — admin only). Angka di samping label = jumlah row.',
+          },
+          {
+            id: 'sheets-search',
+            target: '#txnSearch',
+            title: 'Cari transaksi',
+            body: 'Ketik nama, kategori, atau sub-kategori untuk filter. Pencarian instan, tanpa loading.',
+          },
+          {
+            id: 'sheets-type-filter',
+            target: '#txnTypeFilter',
+            title: 'Filter tipe',
+            body: 'Saring per tipe: Income, Expense, atau semua. Combo dengan filter bulan untuk drill down lebih dalam.',
+          },
+          {
+            id: 'sheets-month-filter',
+            target: '#txnMonthFilter',
+            title: 'Filter bulan',
+            body: 'Pilih bulan tertentu (YYYY-MM) untuk fokus ke periode itu saja. Default-nya semua bulan.',
+          },
+          {
+            id: 'sheets-add',
+            target: '#btnAddTxn',
+            title: 'Add Row manual',
+            body: 'Buka modal Quick-Add untuk input transaksi baru tanpa lewat Chat Bot — cocok kalau kamu sudah tahu persis kategori & akun-nya.',
+          },
+          {
+            id: 'sheets-export',
+            target: '#btnExportCsv',
+            title: 'Export CSV',
+            body: 'Download semua transaksi sebagai CSV — termasuk kolom Account / From Account / To Account untuk analisis di Excel atau Google Sheets.',
+          },
+          {
+            id: 'sheets-table',
+            target: '.sheet-pane[data-pane="transactions"] .table-wrap',
+            title: 'Tabel + inline edit',
+            body: 'Klik cell mana saja untuk edit langsung (Date, Type, Name, Category, Sub-Category, Amount). Kolom Account baru sekarang nampakin akun tiap transaksi — pakai tombol pencil di kanan untuk ubah akun via modal lengkap.',
+          },
+        ],
+      },
+
       demo: {
         key: 'tour_v1_demo_done',
         label: 'Demo Mode Tour',
@@ -17809,7 +17882,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
     // Per-page first-visit trigger. Called from navigateTo().
     function _tourMaybeStartForView(view) {
       if (_tour.active) return;
-      const flowMap = { plans: 'plans', settings: 'settings', chat: 'chat' };
+      const flowMap = { plans: 'plans', settings: 'settings', chat: 'chat', sheets: 'sheets' };
       const flow = flowMap[view];
       if (!flow) return;
       if (tourIsCompleted(flow)) return;
