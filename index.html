@@ -2973,16 +2973,19 @@
     .badge.transfer { background: rgba(99, 102, 241, 0.10); color: #4F46E5; border-color: transparent; }
     [data-theme="dark"] .badge.transfer { background: rgba(129, 140, 248, 0.18); color: #A5B4FC; }
 
-    /* Placeholder for missing fromAccount / toAccount on Transfer rows.
-       Used by fmtTransferRoute() — renders as a muted, italic em-dash
-       with a tooltip explaining how to resolve. Replaces the older "?"
-       string which read like a rendering glitch. */
-    .acct-blank {
-      color: var(--text-tertiary);
-      font-style: italic;
-      opacity: 0.7;
+    /* Warning icon next to incomplete Transfer chips. Used by
+       fmtTransferRoute() when fromAccount or toAccount is empty —
+       displays a small ⚠️ with cursor:help that reveals the
+       fix-via-Edit tooltip on hover. Amber color signals "needs
+       attention" without escalating to error red. Replaces the
+       older em-dash placeholder which was visually ambiguous. */
+    .acct-warn {
+      font-size: 10.5px;
+      margin-left: 2px;
       cursor: help;
+      color: #d97706;
     }
+    [data-theme="dark"] .acct-warn { color: #fbbf24; }
 
     .acct-chip {
       display: inline-block;
@@ -7645,19 +7648,39 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
       } catch { return '—'; }
     }
-    // Render a Transfer's "from → to" route. When either endpoint is
-    // missing (AI parser couldn't infer the source from "transfer 5jt ke
-    // BCA" type input), the missing side renders as a muted em-dash with
-    // tooltip explaining how to fix it. Replaces the older `?` placeholder
-    // which looked like a typo / rendering bug.
+    // Render a Transfer's account context. Three cases:
     //
-    // Returns inline HTML — caller is responsible for wrapping in
-    // <span class="acct-chip"> or similar if a chip frame is desired.
+    //   1. Both fromAccount + toAccount filled → "BCA → GoPay" (proper
+    //      net-zero transfer).
+    //
+    //   2. Only toAccount filled (AI couldn't infer source from input like
+    //      "transfer 5jt ke BCA") → "Penambahan ke BCA" + ⚠️. Frames the
+    //      practical balance impact (BCA bertambah, source unspecified)
+    //      instead of the older ambiguous "— → BCA" rendering. User can
+    //      hover the warn icon for fix instructions.
+    //
+    //   3. Only fromAccount filled (rare; "transfer 5jt dari BCA") →
+    //      "Pengurangan dari BCA" + ⚠️.
+    //
+    //   4. Both missing (malformed) → generic "Akun belum diisi" + ⚠️.
+    //
+    // Note: this is display-only. The underlying balance math in
+    // accountBalance() still treats empty fromAccount as "money from
+    // nowhere" — fixing that requires either auto-defaulting to Cash
+    // or forcing the user to fill in. Per user request, leave the math
+    // alone and just make the UI clearer.
+    //
+    // Returns inline HTML — caller wraps in <span class="acct-chip">.
     function fmtTransferRoute(t) {
       const from = String((t && t.fromAccount) || '').trim();
       const to   = String((t && t.toAccount)   || '').trim();
-      const blank = `<span class="acct-blank" title="Belum ditentukan — buka Edit untuk pilih akun">—</span>`;
-      return `${from ? escapeHtml(from) : blank} → ${to ? escapeHtml(to) : blank}`;
+      const warnFrom = `<span class="acct-warn" title="Akun sumber belum diisi — buka Edit untuk pilih supaya saldo total konsisten">⚠️</span>`;
+      const warnTo   = `<span class="acct-warn" title="Akun tujuan belum diisi — buka Edit untuk pilih supaya saldo total konsisten">⚠️</span>`;
+      const warnBoth = `<span class="acct-warn" title="Akun sumber & tujuan belum diisi — buka Edit untuk pilih">⚠️</span>`;
+      if (from && to) return `${escapeHtml(from)} → ${escapeHtml(to)}`;
+      if (to)         return `Penambahan ke ${escapeHtml(to)} ${warnFrom}`;
+      if (from)       return `Pengurangan dari ${escapeHtml(from)} ${warnTo}`;
+      return `Akun belum diisi ${warnBoth}`;
     }
     // Inline string for meta lines that show "Account" context after the
     // Sub-Category. For Income/Expense returns the account name (or
