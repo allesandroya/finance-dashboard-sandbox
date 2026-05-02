@@ -5942,70 +5942,21 @@
                       <span class="notif-toggle-emoji">☀️</span>
                       <span>
                         <span class="notif-toggle-title">Daily reminder</span>
-                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" Jadwal disesuaikan timezone-mu.</span>
+                        <span class="notif-toggle-hint">"Sudah catat pengeluaran hari ini?" Tiap hari 21:00 waktu setempat.</span>
                       </span>
                     </span>
                     <span class="switch"><input type="checkbox" data-notif-cat="daily" data-server-push /><span class="slider"></span></span>
                   </label>
-                  <div class="notif-time-row" id="notifDailyTimeRow">
-                    <label class="notif-time-label">Jam pengingat</label>
-                    <!-- Hour-only picker. Cron fires once per hour (0 * * * *)
-                         to keep KV usage low; precision-by-the-hour is still
-                         plenty for a daily reminder. -->
-                    <select class="select notif-time-input" id="notifDailyTime">
-                      <option value="00:00">00:00</option><option value="01:00">01:00</option>
-                      <option value="02:00">02:00</option><option value="03:00">03:00</option>
-                      <option value="04:00">04:00</option><option value="05:00">05:00</option>
-                      <option value="06:00">06:00</option><option value="07:00">07:00</option>
-                      <option value="08:00">08:00</option><option value="09:00">09:00</option>
-                      <option value="10:00">10:00</option><option value="11:00">11:00</option>
-                      <option value="12:00">12:00</option><option value="13:00">13:00</option>
-                      <option value="14:00">14:00</option><option value="15:00">15:00</option>
-                      <option value="16:00">16:00</option><option value="17:00">17:00</option>
-                      <option value="18:00">18:00</option><option value="19:00">19:00</option>
-                      <option value="20:00">20:00</option><option value="21:00" selected>21:00</option>
-                      <option value="22:00">22:00</option><option value="23:00">23:00</option>
-                    </select>
-                  </div>
                   <label class="notif-toggle-row">
                     <span class="notif-toggle-info">
                       <span class="notif-toggle-emoji">📊</span>
                       <span>
                         <span class="notif-toggle-title">Weekly summary</span>
-                        <span class="notif-toggle-hint">Ringkasan keuangan: income, expense, net 7 hari terakhir.</span>
+                        <span class="notif-toggle-hint">Ringkasan income, expense, net 7 hari. Tiap Senin 21:00 waktu setempat.</span>
                       </span>
                     </span>
                     <span class="switch"><input type="checkbox" data-notif-cat="weekly" data-server-push /><span class="slider"></span></span>
                   </label>
-                  <div class="notif-time-row" id="notifWeeklyTimeRow">
-                    <label class="notif-time-label">Hari & jam</label>
-                    <div class="notif-time-pair">
-                      <select class="select notif-time-input" id="notifWeeklyDay">
-                        <option value="Mon">Senin</option>
-                        <option value="Tue">Selasa</option>
-                        <option value="Wed">Rabu</option>
-                        <option value="Thu">Kamis</option>
-                        <option value="Fri">Jumat</option>
-                        <option value="Sat">Sabtu</option>
-                        <option value="Sun">Minggu</option>
-                      </select>
-                      <!-- Hour-only picker; same rationale as daily. -->
-                      <select class="select notif-time-input" id="notifWeeklyTime">
-                        <option value="00:00">00:00</option><option value="01:00">01:00</option>
-                        <option value="02:00">02:00</option><option value="03:00">03:00</option>
-                        <option value="04:00">04:00</option><option value="05:00">05:00</option>
-                        <option value="06:00">06:00</option><option value="07:00">07:00</option>
-                        <option value="08:00" selected>08:00</option><option value="09:00">09:00</option>
-                        <option value="10:00">10:00</option><option value="11:00">11:00</option>
-                        <option value="12:00">12:00</option><option value="13:00">13:00</option>
-                        <option value="14:00">14:00</option><option value="15:00">15:00</option>
-                        <option value="16:00">16:00</option><option value="17:00">17:00</option>
-                        <option value="18:00">18:00</option><option value="19:00">19:00</option>
-                        <option value="20:00">20:00</option><option value="21:00">21:00</option>
-                        <option value="22:00">22:00</option><option value="23:00">23:00</option>
-                      </select>
-                    </div>
-                  </div>
                 </div>
                 <div class="hint" id="notifPermHint" style="margin-top:10px;"></div>
                 <div id="notifTestRow" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border); display:none;">
@@ -14167,12 +14118,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
         }
 
         const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'Asia/Jakarta';
+        // Schedule is fixed for everyone right now: daily 21:00 local +
+        // weekly Monday 21:00 local. Dropped the per-user picker to cut KV
+        // writes (every change re-subscribed). Worker also overwrites these
+        // server-side, so this is double-locked.
         const prefs = {
           daily:      wantDaily,
           weekly:     wantWeekly,
-          dailyTime:  n.dailyTime  || '21:00',
-          weeklyDay:  n.weeklyDay  || 'Mon',
-          weeklyTime: n.weeklyTime || '08:00',
+          dailyTime:  '21:00',
+          weeklyDay:  'Mon',
+          weeklyTime: '21:00',
         };
         const res = await fetch(`${CONFIG.WORKER_URL}/api/push/subscribe`, {
           method: 'POST',
@@ -18219,39 +18174,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const showTest = !isProdHost && effectivelyOn && linked && (n.daily || n.weekly);
         testRow.style.display = showTest ? '' : 'none';
       }
-      // Time-picker rows: shown only when the parent toggle is checked AND the
-      // user is linked (server-push needs a session to bind).
-      // Migration: existing users may have stored HH:MM (e.g. "21:30") from
-      // before we moved to hour-only precision. Round any non-:00 value down
-      // to the hour so it matches one of the dropdown options. Out-of-range
-      // values fall back to the per-category default.
-      const roundToHour = (val, fallback) => {
-        const m = /^(\d{1,2}):\d{2}$/.exec(String(val || '').trim());
-        if (!m) return fallback;
-        const h = Math.max(0, Math.min(23, parseInt(m[1], 10)));
-        return String(h).padStart(2, '0') + ':00';
-      };
-      const dailyTimeInput = document.getElementById('notifDailyTime');
-      const dailyRow = document.getElementById('notifDailyTimeRow');
-      if (dailyTimeInput) {
-        const v = roundToHour(n.dailyTime, '21:00');
-        dailyTimeInput.value = v;
-        // Persist the rounded value back so saveState/sync send the
-        // canonical HH:00 to the Worker — otherwise a stale "21:30" lingers
-        // in state until the user manually picks a new hour.
-        if (n.dailyTime !== v) { n.dailyTime = v; saveState(); }
-      }
-      if (dailyRow) dailyRow.classList.toggle('is-shown', !!n.daily && linked);
-      const weeklyDaySel = document.getElementById('notifWeeklyDay');
-      const weeklyTimeInput = document.getElementById('notifWeeklyTime');
-      const weeklyRow = document.getElementById('notifWeeklyTimeRow');
-      if (weeklyDaySel) weeklyDaySel.value = n.weeklyDay || 'Mon';
-      if (weeklyTimeInput) {
-        const v = roundToHour(n.weeklyTime, '08:00');
-        weeklyTimeInput.value = v;
-        if (n.weeklyTime !== v) { n.weeklyTime = v; saveState(); }
-      }
-      if (weeklyRow) weeklyRow.classList.toggle('is-shown', !!n.weekly && linked);
+      // Time/day pickers were removed — schedule is fixed at daily 21:00 +
+      // weekly Monday 21:00 local. Nothing to render here anymore. The
+      // server uses hardcoded constants regardless of stored prefs values,
+      // so leftover state.settings.notif.dailyTime / weeklyTime are
+      // harmless ghosts (kept for forward compat when picker returns).
     }
 
     function _wireNotifSettings() {
@@ -18299,27 +18226,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
           }
         });
       });
-      // Time inputs: persist + re-sync subscription so worker has the new schedule.
-      const wireTimeInput = (id, key) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        let pending = null;
-        el.addEventListener('change', async () => {
-          if (!state.settings.notif) state.settings.notif = {};
-          state.settings.notif[key] = el.value;
-          saveState();
-          // Debounce: only the latest change actually re-syncs.
-          if (pending) clearTimeout(pending);
-          pending = setTimeout(async () => {
-            const r = await pushSyncSubscription();
-            if (r.ok && r.action === 'subscribed') toast('Jadwal notifikasi diperbarui ✓', 'success');
-            else if (!r.ok && r.reason !== 'not-logged-in') toast('Gagal update jadwal: ' + (r.error || r.reason), 'error');
-          }, 600);
-        });
-      };
-      wireTimeInput('notifDailyTime',  'dailyTime');
-      wireTimeInput('notifWeeklyTime', 'weeklyTime');
-      wireTimeInput('notifWeeklyDay',  'weeklyDay');
+      // Time/day pickers removed — schedule is fixed (daily 21:00 + weekly
+      // Mon 21:00 local). When the picker returns for paid tiers, restore
+      // the previous wireTimeInput helper from git history (commit before
+      // the "fixed schedule" change) and the matching DOM rows.
 
       // Test-push button: hits Worker /api/push/test-self which fires a
       // notification to all of this user's devices, skipping the cron time
