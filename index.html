@@ -6169,7 +6169,14 @@
        ======================================================================== */
     const CONFIG = Object.freeze({
       WORKER_URL: 'https://finance-bot-worker.allesandroya.workers.dev',
-      AI_MODEL: 'mistral-large-latest',
+      // Sandbox A/B test: trying mistral-small-latest as the default for
+      // ALL parse requests (text + image OCR companion). Small is ~5×
+      // cheaper on chat completions; if accuracy holds for typical
+      // inputs we keep it as the production default. If we see weak
+      // outputs (missed accounts, wrong categories, malformed JSON
+      // arrays in split mode), we'll fall back to the Tahap 1 plan:
+      // heuristic-driven small-vs-large picker.
+      AI_MODEL: 'mistral-small-latest',
     });
 
     // Session token key (Phase 8.1). Stored outside `cfb_v1` so signout can
