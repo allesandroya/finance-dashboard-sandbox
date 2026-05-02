@@ -8309,7 +8309,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (parsed.Type === 'Transfer') return parsed;
       if (parsed.account) return parsed;
       const def = getDefaultAccountName();
-      if (def) parsed.account = def;
+      if (def) {
+        parsed.account = def;
+        // Track that this account came from the default fallback, not from
+        // an explicit user mention ("pake BCA") or an OCR'd account name
+        // on a receipt. The "X transaksi dihitung ke [Account] secara
+        // default" hint counts only these auto-tagged rows so explicit
+        // choices aren't lumped into the migration prompt.
+        parsed._autoTagged = true;
+      }
       return parsed;
     }
 
@@ -8401,14 +8409,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return;
       }
       const src = (sourceAccount || '').trim();
-      // Build the candidate-set predicate so source filtering and target
-      // exclusion stay consistent across all 3 modes.
+      // Build the candidate-set predicate. Mirrors renderDefaultAccountHint:
+      // only auto-tagged tx are migration candidates so explicit user
+      // choices (e.g. "pake BCA") aren't swept into the bulk move. Cash
+      // additionally includes truly-untagged because the Cash sink in
+      // accountBalance treats those as Cash too.
       const matchesSource = (t) => {
         if (!t || t.Type === 'Transfer') return false;
         const acct = (t.account || '').trim();
-        if (src === 'Cash') return acct === 'Cash' || !acct;
+        if (src === 'Cash' && !acct) return true; // untagged → Cash sink
         if (!src) return !acct; // legacy: only untagged
-        return acct === src;
+        if (acct !== src) return false;
+        return !!t._autoTagged;
       };
       const candidates = (state.transactions || []).filter(matchesSource);
       if (!candidates.length) {
@@ -8586,6 +8598,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
             label: 'Migrasikan', className: 'btn-primary', onClick: () => {
               const now = Date.now();
               let count = 0;
+              // After migration the chosen destination IS an explicit user
+              // choice — clear the _autoTagged flag so subsequent renders
+              // of the hint don't keep counting them.
               if (_migrateMode === 'all') {
                 const acct = (document.getElementById('migrateAcctSel')?.value || '').trim();
                 if (!acct) { toast('Pilih akun tujuan dulu.', 'warning'); return; }
@@ -8593,6 +8608,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 for (const t of state.transactions) {
                   if (!matchesSource(t)) continue;
                   t.account = acct;
+                  delete t._autoTagged;
                   t._modifiedAt = now;
                   count++;
                 }
@@ -8617,6 +8633,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 for (const t of state.transactions) {
                   if (!idsToTag.has(t.id)) continue;
                   t.account = acct;
+                  delete t._autoTagged;
                   t._modifiedAt = now;
                   count++;
                 }
@@ -8636,6 +8653,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               for (const t of state.transactions) {
                 if (!choices.has(t.id)) continue;
                 t.account = choices.get(t.id);
+                delete t._autoTagged;
                 t._modifiedAt = now;
                 count++;
               }
@@ -8673,14 +8691,24 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const defAccName = (state.settings && state.settings.defaultAccount) || '';
       const renderDefaultAccountHint = (accountName) => {
         if (!defAccEnabled || defAccName !== accountName) return '';
+        // Only count transactions that fell through to the default
+        // (auto-tagged via applyDefaultAccount). Transactions where the
+        // user explicitly mentioned an account ("beli bakso pake BCA")
+        // or where OCR detected one from a receipt set parsed.account
+        // BEFORE applyDefaultAccount runs, so they don't get the
+        // _autoTagged flag and aren't counted here. This keeps the hint
+        // accurate — it represents tx the user might genuinely want to
+        // migrate elsewhere, not their explicit choices.
+        //
+        // Special case for Cash: also count truly-untagged tx (no
+        // account field), because accountBalance treats them as a Cash
+        // sink. They're clearly not an explicit user choice either.
         const count = (state.transactions || []).filter((t) => {
           if (!t || t.Type === 'Transfer') return false;
           const acct = (t.account || '').trim();
-          // Cash is the implicit sink for untagged tx (see accountBalance),
-          // so its hint counts both tagged-Cash and truly-untagged. Other
-          // accounts only count their own explicitly-tagged tx.
-          if (accountName === 'Cash') return acct === 'Cash' || !acct;
-          return acct === accountName;
+          if (accountName === 'Cash' && !acct) return true; // untagged → Cash sink
+          if (acct !== accountName) return false;
+          return !!t._autoTagged;
         }).length;
         if (count === 0) return '';
         return `<div class="ib-hint" style="margin-top:8px; padding:10px 12px; background: color-mix(in srgb, var(--accent) 8%, transparent); border-left: 3px solid var(--accent); border-radius: 6px; font-size: 12px; line-height: 1.5;">
@@ -12541,6 +12569,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 delete updated.fromAccount;
                 delete updated.toAccount;
               }
+              // User opened the Edit modal and committed Save → whatever
+              // account is now on the row is an explicit user choice, not
+              // a default auto-fallback. Clear the flag so the default-
+              // account hint stops counting this transaction.
+              delete updated._autoTagged;
               onSave(updated);
               closeModal();
             }
