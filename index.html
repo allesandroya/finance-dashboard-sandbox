@@ -5398,7 +5398,7 @@
             <div class="chat-dropzone" id="chatDropzone">
               📎 Lepas file di sini untuk lampirkan
               <br/>
-              <span style="font-weight:400; font-size:12px; opacity:.8;">Foto / PDF (1 file), atau CSV / XLSX / JSON</span>
+              <span style="font-weight:400; font-size:12px; opacity:.8;">Foto, PDF, atau Word — max 2 halaman, 1 file per kirim</span>
             </div>
             <div class="chat-messages" id="chatMessages"></div>
             <div class="chat-composer">
@@ -5408,8 +5408,8 @@
                    show a thumbnail; other files show a labeled icon pill. -->
               <div class="chat-attach-tray" id="chatAttachTray" hidden></div>
               <div class="chat-input-row">
-                <!-- Attach button - any supported file type -->
-                <button class="chat-attach-btn" id="btnChatAttach" type="button" title="Lampirkan file (gambar, PDF, CSV, XLSX, JSON)" aria-label="Attach file">
+                <!-- Attach button - foto / PDF / Word receipts only -->
+                <button class="chat-attach-btn" id="btnChatAttach" type="button" title="Lampirkan foto, PDF, atau Word (max 2 halaman)" aria-label="Attach file">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                 </button>
                 <!-- Camera button - mobile only (capture=environment triggers
@@ -5417,8 +5417,10 @@
                 <button class="chat-attach-btn chat-camera-btn" id="btnChatCamera" type="button" title="Ambil foto (mobile)" aria-label="Open camera">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                 </button>
-                <!-- Hidden inputs driven by the two buttons above -->
-                <input type="file" id="chatFileInput" accept="image/*,application/pdf,.csv,.xlsx,.xls,.json,.txt" multiple hidden>
+                <!-- Hidden inputs driven by the two buttons above. The accept
+                     list is what the OS file picker filters on; handleChatAttach
+                     enforces the same rules client-side for drag-and-drop. -->
+                <input type="file" id="chatFileInput" accept="image/*,application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple hidden>
                 <input type="file" id="chatCameraInput" accept="image/*" capture="environment" hidden>
                 <textarea id="chatInput" class="chat-input" placeholder="Baru makan bakso 15rb…" rows="1"></textarea>
                 <button class="chat-send" id="btnChatSend" title="Kirim (Enter)">
@@ -5767,7 +5769,7 @@
                 </div>
                 <hr style="border: none; border-top: 1px solid var(--border); margin: 8px 0;" />
                 <div>
-                  <div style="font-weight:600; margin-bottom:6px;">Multi-transaksi via FOTO / PDF</div>
+                  <div style="font-weight:600; margin-bottom:6px;">Multi-transaksi via FOTO / FILE</div>
                   <div class="text-sm text-muted" style="margin-bottom:8px;">
                     Contoh: struk yang punya banyak item (Bulgogi, Sundubu, Es Kelapa, …) atau invoice multi-line.
                   </div>
@@ -5777,7 +5779,7 @@
                   </select>
                 </div>
                 <div class="hint" style="margin-top:6px;">
-                  💡 Foto/PDF dibatasi <strong>1 file</strong> per kirim biar OCR cepat dan tidak kena rate limit.
+                  💡 Hanya menerima <strong>foto, PDF, atau Word</strong> (max 2 halaman) — <strong>1 file</strong> per kirim biar OCR cepat dan tidak kena rate limit.
                 </div>
               </div>
             </div>
@@ -7904,7 +7906,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Free defaults match worker.js QUOTA_DEFAULTS. When admin clears the
       // override, the user falls back to these. We also pre-fill the inputs
       // with these values so admin can tweak from a known baseline.
-      const FREE_DEFAULTS = { ocr: 7, text: 15 };
+      const FREE_DEFAULTS = { ocr: 6, text: 12 };
       const curTextLimit = Number(ovr?.text ?? q.text?.limit ?? FREE_DEFAULTS.text);
       const curOcrLimit  = Number(ovr?.ocr  ?? q.ocr?.limit  ?? FREE_DEFAULTS.ocr);
       const tUsed = Number(q.text?.used || 0);
@@ -7914,7 +7916,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const histDays = Number(a.days || 0);
       const overrideStatus = ovr
         ? `<span style="color:#1d4ed8; font-weight:600;">Custom override aktif</span>`
-        : `<span style="color:var(--text-tertiary);">Pakai default free (${FREE_DEFAULTS.text} teks · ${FREE_DEFAULTS.ocr} OCR)</span>`;
+        : `<span style="color:var(--text-tertiary);">Pakai default free (${FREE_DEFAULTS.text} teks · ${FREE_DEFAULTS.ocr} foto/file)</span>`;
       const body = `
         <div class="stack-sm">
           <div>
@@ -7966,21 +7968,21 @@ Use the user input carefully, but keep the output minimal and structured. Return
             <div class="hint" style="margin-bottom:10px;">${overrideStatus}</div>
             <div class="row" style="gap:10px;">
               <div style="flex:1;">
-                <label class="label">Limit Text / hari</label>
+                <label class="label">Limit Teks Chat / hari</label>
                 <input class="input" id="admEditQuotaText" type="number" min="0" max="100000" value="${curTextLimit}" />
               </div>
               <div style="flex:1;">
-                <label class="label">Limit OCR / hari</label>
+                <label class="label">Limit Foto / File / hari</label>
                 <input class="input" id="admEditQuotaOcr"  type="number" min="0" max="10000"  value="${curOcrLimit}" />
               </div>
             </div>
             <div class="hint" style="margin-top:6px; line-height:1.5;">
-              <b>Hari ini:</b> ${tUsed}/${curTextLimit} teks · ${oUsed}/${curOcrLimit} OCR<br>
-              <b>Rata-rata ${histDays} hari:</b> ${tAvg.toFixed(1)} teks/hari · ${oAvg.toFixed(1)} OCR/hari
+              <b>Hari ini:</b> ${tUsed}/${curTextLimit} teks · ${oUsed}/${curOcrLimit} foto/file<br>
+              <b>Rata-rata ${histDays} hari:</b> ${tAvg.toFixed(1)} teks/hari · ${oAvg.toFixed(1)} foto/file/hari
             </div>
             <div class="row" style="gap:8px; margin-top:10px; flex-wrap:wrap;">
               <button type="button" class="btn btn-ghost btn-sm" id="admBtnResetToday" title="Zero today's counters tanpa ubah override">Reset hari ini</button>
-              <button type="button" class="btn btn-ghost btn-sm" id="admBtnClearOverride" ${ovr ? '' : 'disabled'} title="Kembali ke default free (${FREE_DEFAULTS.text}/${FREE_DEFAULTS.ocr})">Hapus override</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="admBtnClearOverride" ${ovr ? '' : 'disabled'} title="Kembali ke default free (${FREE_DEFAULTS.text} teks / ${FREE_DEFAULTS.ocr} foto/file)">Hapus override</button>
             </div>
           </div>
         </div>`;
@@ -11982,26 +11984,64 @@ Use the user input carefully, but keep the output minimal and structured. Return
     const MAX_IMAGE_DIM   = 1280;   // longest-side cap after compression
     const IMG_JPEG_QUALITY = 0.82;
     const MAX_ATTACHMENTS = 5;
-    // Each image/PDF triggers a separate Mistral OCR call before the chat
-    // model runs, so allowing 2+ multiplies upstream cost AND multiplies the
-    // chance of hitting Mistral's per-minute rate limit. Cap OCR-heavy
-    // attachments at one per send. CSV / XLSX / JSON / TXT are parsed
-    // locally and don't count against this limit.
+    // Each image/PDF/Word triggers a Mistral OCR call before the chat model
+    // runs, so allowing 2+ multiplies upstream cost AND multiplies the chance
+    // of hitting Mistral's per-minute rate limit. Cap OCR-heavy attachments
+    // at one per send.
     const MAX_OCR_ATTACHMENTS = 1;
     function _countOcrAttachments(list) {
-      return (list || []).filter((a) => a.kind === 'image' || a.kind === 'pdf').length;
+      return (list || []).filter((a) => a.kind === 'image' || a.kind === 'pdf' || a.kind === 'word').length;
     }
+
+    // File-size caps tuned for "receipt-or-invoice" sized inputs. Anything
+    // bigger is almost certainly the wrong kind of document for a finance
+    // tracker chat (e.g. a multi-MB scanned book) and would also push the
+    // request body past Mistral OCR's practical limits.
+    const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB raw (gets compressed)
+    const MAX_PDF_BYTES   = 5 * 1024 * 1024; // 5 MB raw
+    const MAX_WORD_BYTES  = 5 * 1024 * 1024; // 5 MB raw
+    // PDFs > 2 pages are rejected. We sniff page count via a quick regex
+    // scan instead of pulling in PDF.js — good enough for legit docs and
+    // we'd rather false-reject a weird PDF than ship 500KB of library.
+    const MAX_DOC_PAGES = 2;
 
     function _classifyFile(file) {
       const m = (file.type || '').toLowerCase();
       const n = (file.name || '').toLowerCase();
       if (m.startsWith('image/')) return 'image';
       if (m === 'application/pdf' || n.endsWith('.pdf')) return 'pdf';
-      if (n.endsWith('.csv') || m === 'text/csv') return 'spreadsheet';
-      if (n.endsWith('.xlsx') || n.endsWith('.xls') || m.includes('spreadsheetml')) return 'spreadsheet';
-      if (n.endsWith('.json') || m === 'application/json') return 'json';
-      if (m.startsWith('text/')) return 'text';
-      return 'other';
+      if (n.endsWith('.docx') || n.endsWith('.doc')
+          || m === 'application/msword'
+          || m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        return 'word';
+      }
+      // Everything else — sheets, CSV, JSON, plain text, archives, audio,
+      // etc. — is intentionally NOT supported. The chat is for receipt /
+      // invoice OCR + text input only.
+      return 'unsupported';
+    }
+
+    // Best-effort PDF page count without a PDF library. We read the first
+    // ~512 KB of the file and count `/Type /Page` occurrences (excluding
+    // `/Pages`, the parent node). For most real PDFs the page objects are
+    // declared near the start; if not, we fall back to "unknown" (return
+    // null) and the server still enforces its own limits.
+    async function _pdfPageCount(file) {
+      try {
+        const sliceSize = Math.min(file.size, 512 * 1024);
+        const buf = await file.slice(0, sliceSize).arrayBuffer();
+        // Decode as latin-1 so binary stays byte-faithful for regex.
+        const txt = new TextDecoder('latin1').decode(buf);
+        // /Type /Page (with whitespace variants) but NOT /Type /Pages
+        const matches = txt.match(/\/Type\s*\/Page(?!s)/g);
+        if (matches && matches.length > 0) return matches.length;
+        // Fallback: try /Count <n> in the page tree root.
+        const cm = txt.match(/\/Count\s+(\d+)/);
+        if (cm) return Number(cm[1]) || null;
+        return null; // unknown — let it through, server may still cap
+      } catch {
+        return null;
+      }
     }
 
     function _formatBytes(n) {
@@ -12044,26 +12084,68 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const files = Array.from(fileList || []);
       if (!files.length) return;
       let ocrWarned = false;
+      let unsupportedWarned = false;
       for (const file of files) {
         if (_chatAttachments.length >= MAX_ATTACHMENTS) {
           toast(`Maksimal ${MAX_ATTACHMENTS} lampiran sekali kirim`, 'error');
           break;
         }
         const kind = _classifyFile(file);
-        // Hard cap: only one image/PDF per send (each one costs an OCR call).
-        if ((kind === 'image' || kind === 'pdf')
+
+        // Reject types that aren't part of "foto / file" intent. Spreadsheet
+        // / CSV / JSON / plain text imports belong in Settings → Import data,
+        // not in the chat. Showing a single toast even if multiple files are
+        // dropped — no point spamming.
+        if (kind === 'unsupported') {
+          if (!unsupportedWarned) {
+            toast('File tidak didukung. Hanya foto, PDF, atau Word (max 2 halaman).', 'error');
+            unsupportedWarned = true;
+          }
+          continue;
+        }
+
+        // Per-kind size sanity check. These thresholds line up with what a
+        // real receipt or 2-page invoice looks like.
+        const size = Number(file.size || 0);
+        if (kind === 'image' && size > MAX_IMAGE_BYTES) {
+          toast(`Foto terlalu besar (${_formatBytes(size)}). Max 8 MB.`, 'error');
+          continue;
+        }
+        if (kind === 'pdf' && size > MAX_PDF_BYTES) {
+          toast(`PDF terlalu besar (${_formatBytes(size)}). Max 5 MB / ~2 halaman.`, 'error');
+          continue;
+        }
+        if (kind === 'word' && size > MAX_WORD_BYTES) {
+          toast(`Dokumen Word terlalu besar (${_formatBytes(size)}). Max 5 MB / ~2 halaman.`, 'error');
+          continue;
+        }
+
+        // PDF page-count sniff. Best-effort; if we can't determine it we
+        // still let the file through (the server has its own cost ceiling).
+        if (kind === 'pdf') {
+          const pages = await _pdfPageCount(file);
+          if (pages != null && pages > MAX_DOC_PAGES) {
+            toast(`PDF ${pages} halaman — max ${MAX_DOC_PAGES} halaman per upload.`, 'error');
+            continue;
+          }
+        }
+
+        // Hard cap: only one OCR-eligible file per send (image/PDF/Word
+        // each cost a Mistral OCR call).
+        if ((kind === 'image' || kind === 'pdf' || kind === 'word')
             && _countOcrAttachments(_chatAttachments) >= MAX_OCR_ATTACHMENTS) {
           if (!ocrWarned) {
-            toast('Foto/PDF dibatasi 1 file per kirim biar OCR cepat & hemat. Hapus dulu yang ada.', 'warning');
+            toast('Foto / file dibatasi 1 per kirim biar OCR cepat & hemat. Hapus dulu yang ada.', 'warning');
             ocrWarned = true;
           }
           continue;
         }
+
         const rec = {
           id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
           name: file.name || 'untitled',
           mime: file.type || '',
-          size: file.size || 0,
+          size,
           kind,
           raw: file,
         };
@@ -12091,15 +12173,17 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!_chatAttachments.length) { tray.hidden = true; tray.innerHTML = ''; return; }
       tray.hidden = false;
       tray.innerHTML = _chatAttachments.map((a) => {
+        // Pick a short label per kind. spreadsheet/json/text were removed
+        // from the supported set but kept here as a fallback in case stale
+        // attachments survived a hot reload.
+        const labelFor = (kind, name) => {
+          if (kind === 'pdf') return 'PDF';
+          if (kind === 'word') return /\.docx?$/i.test(name) ? name.toLowerCase().endsWith('.docx') ? 'DOCX' : 'DOC' : 'WORD';
+          return 'FILE';
+        };
         const thumb = a.kind === 'image' && a.dataUrl
           ? `<img class="chat-attach-pill-thumb" src="${a.dataUrl}" alt="">`
-          : `<span class="chat-attach-pill-icon">${
-              a.kind === 'spreadsheet' ? 'XLS'
-              : a.kind === 'pdf' ? 'PDF'
-              : a.kind === 'json' ? 'JSON'
-              : a.kind === 'text' ? 'TXT'
-              : 'FILE'
-            }</span>`;
+          : `<span class="chat-attach-pill-icon">${labelFor(a.kind, a.name || '')}</span>`;
         return `
           <div class="chat-attach-pill" data-att-id="${a.id}">
             ${thumb}
@@ -12122,12 +12206,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
       input.style.height = 'auto';
       clearChatAttachments();
 
-      // --- Route 1: spreadsheet/JSON-only send → client-side import, skip AI.
-      // If the user attached CSV/XLSX/JSON files and no images, we parse them
-      // locally and bulk-insert transactions - no token spend, instant.
+      // Chat attachments are limited to image / pdf / word — the legacy
+      // spreadsheet/json/text imports were moved to Settings → Import data
+      // (cleaner mental model and avoids accidental quota burn). The
+      // filtered constants below stay for backward compat in case a stale
+      // session restores attachments saved by an older build, but in
+      // practice these arrays are empty after the new attach gate.
       const spreadsheets = attachments.filter((a) => a.kind === 'spreadsheet' || a.kind === 'json');
       const images       = attachments.filter((a) => a.kind === 'image');
       const pdfs         = attachments.filter((a) => a.kind === 'pdf');
+      const words        = attachments.filter((a) => a.kind === 'word');
       const textFiles    = attachments.filter((a) => a.kind === 'text');
 
       // Echo the user's message first (with inline thumbnails for images).
@@ -12177,7 +12265,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       //                    "Gaji 50jt" transaction)
       //   needs_amount   → bot asks for clarification (user likely forgot amount)
       //   ai             → fall through to the AI/rules transaction parser
-      if (text && !images.length && !pdfs.length && !spreadsheets.length && !textFiles.length) {
+      if (text && !images.length && !pdfs.length && !words.length && !spreadsheets.length && !textFiles.length) {
         const cls = classifyChatText(text);
         if (cls.intent === 'summary') {
           const summary = generateLocalSummary(cls);
@@ -12217,10 +12305,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
       renderChat();
 
       try {
-        // Build the images array the worker expects. PDFs are sent as-is;
-        // the worker decides whether its vision model supports them.
+        // Build the OCR payload the worker expects. Image / PDF / Word all
+        // route through Mistral OCR's `document_url` (or `image_url` for
+        // images). The worker decides which based on mime type. Field name
+        // stays `images` for backward compat with older worker builds.
         const payloadImages = [];
-        for (const a of [...images, ...pdfs]) {
+        for (const a of [...images, ...pdfs, ...words]) {
           let dataUrl = a.dataUrl;
           if (!dataUrl) dataUrl = await new Promise((res) => {
             const r = new FileReader();
@@ -12228,7 +12318,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
             r.readAsDataURL(a.raw);
           });
           const base64 = String(dataUrl).split(',')[1] || '';
-          payloadImages.push({ mime: a.mime || (a.kind === 'image' ? 'image/jpeg' : 'application/pdf'), base64, name: a.name });
+          // Pick a sensible default mime if the browser didn't supply one.
+          // Word .docx → openxml; .doc → msword; PDF → pdf; otherwise jpeg.
+          let mime = a.mime || '';
+          if (!mime) {
+            if (a.kind === 'image') mime = 'image/jpeg';
+            else if (a.kind === 'pdf') mime = 'application/pdf';
+            else if (a.kind === 'word') {
+              mime = /\.docx$/i.test(a.name || '')
+                ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                : 'application/msword';
+            }
+          }
+          payloadImages.push({ mime, base64, name: a.name });
         }
 
         // Read plain text files and append their content to userText so the
@@ -12723,8 +12825,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const used  = Number(data?.used  || 0);
       const limit = Number(data?.limit || 0);
       const resetAt = Number(data?.resetAt || 0);
-      const kindLabel = isOcr ? 'foto / OCR struk' : 'parse teks (Chat Bot)';
-      const otherLabel = isOcr ? 'parse teks biasa' : 'OCR foto struk';
+      const kindLabel  = isOcr ? 'Foto / File'  : 'Teks Chat';
+      const otherLabel = isOcr ? 'Teks Chat'    : 'Foto / File';
       // Reset is at UTC midnight = 07:00 WIB. Format the local equivalent so
       // the copy is unambiguous regardless of user's tz.
       let resetCopy = 'Kuota direset jam 07:00 WIB.';
@@ -12835,8 +12937,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
             <div style="font-weight:600; font-size:14px;">Kuota harian Chat Bot ${overrideBadge}</div>
             <div class="text-secondary" style="font-size:12px;">${escapeHtml(resetCopy)}</div>
           </div>
-          ${row('Parse teks',  textUsed, textLimit, textPct, textPct >= 90 ? '#dc2626' : (textPct >= 70 ? '#f59e0b' : '#10b981'))}
-          ${row('Foto / OCR',  ocrUsed,  ocrLimit,  ocrPct,  ocrPct  >= 90 ? '#dc2626' : (ocrPct  >= 70 ? '#f59e0b' : '#10b981'))}
+          ${row('Teks Chat',  textUsed, textLimit, textPct, textPct >= 90 ? '#dc2626' : (textPct >= 70 ? '#f59e0b' : '#10b981'))}
+          ${row('Foto / File', ocrUsed, ocrLimit, ocrPct, ocrPct >= 90 ? '#dc2626' : (ocrPct >= 70 ? '#f59e0b' : '#10b981'))}
         </div>
       `;
     }
