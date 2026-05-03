@@ -7371,18 +7371,26 @@ Use the user input carefully, but keep the output minimal and structured. Return
         }
         if (res.status === 402) {
           const data = await res.json().catch(() => ({}));
-          // 402 with `error: 'quota_exceeded'` is the new daily-quota gate.
-          // Older "plan gate" semantics are kept as a fallback for any legacy
-          // worker version that returns a different 402 shape.
+          // 402 with `error: 'quota_exceeded'` is the daily-quota gate.
+          // Throw a tagged error so handleSend can render an in-chat bot
+          // reply ("Maaf, kuota harian habis…") instead of falling back to
+          // the rules-based parser — which would produce a junk transaction
+          // for image-only or short text inputs. We deliberately DO NOT
+          // open a modal here: showing both a modal and a bot message is
+          // double notification, and the modal-close also caused a chat
+          // scroll-jump bug. The Settings quota card already gives the
+          // persistent visual indicator.
           if (data && data.error === 'quota_exceeded') {
-            // Refresh the Settings card asynchronously — no await, the modal
-            // is the immediate user feedback.
             try { refreshQuotaCard(); } catch {}
-            showQuotaExceededModal(data);
-          } else {
-            toast(data.error || 'Upgrade paket untuk pakai fitur ini.', 'warning');
+            const qErr = new Error('quota_exceeded');
+            qErr.code = 'quota_exceeded';
+            qErr.data = data;
+            throw qErr;
           }
-          throw new Error('Quota gate');
+          // Legacy/other 402 shapes (e.g. "plan gate" from old worker
+          // versions) still surface as a toast.
+          toast(data.error || 'Upgrade paket untuk pakai fitur ini.', 'warning');
+          throw new Error('Plan gate');
         }
         if (res.status === 429) {
           const data = await res.json().catch(() => ({}));
@@ -7432,6 +7440,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
         }
         return finalized;
       } catch (err) {
+        // Quota errors must propagate — handleSend renders a friendly bot
+        // reply with reset time. Falling back to parseWithRules here would
+        // create a fake transaction (especially for image-only inputs that
+        // have no text for rules to read), which is exactly the bug the
+        // user hit ("AI fallback to parser instead of saying kuota habis").
+        if (err && err.code === 'quota_exceeded') throw err;
         console.error(err);
         toast(`AI gagal: ${err.message}. Fallback ke rules-based.`, 'error');
         return [parseWithRules(text)];
@@ -12344,8 +12358,37 @@ Use the user input carefully, but keep the output minimal and structured. Return
         saveState();
         renderChat();
       } catch (err) {
+        // Always strip the typing indicator first, regardless of branch.
         state.messages = state.messages.filter((m) => m._typing !== typingId);
-        state.messages.push({ role: 'bot', text: `Gagal memproses: ${err.message}`, ts: Date.now() });
+        if (err && err.code === 'quota_exceeded') {
+          // Friendly inline bot reply instead of a modal — keeps the chat
+          // scroll position natural and avoids the modal-close scroll-jump.
+          const data = err.data || {};
+          const isOcr = data.kind === 'ocr';
+          const used  = Number(data.used  || 0);
+          const limit = Number(data.limit || 0);
+          let resetCopy = 'Kuota direset jam 07:00 WIB.';
+          if (data.resetAt) {
+            try {
+              const d = new Date(Number(data.resetAt));
+              const fmt = new Intl.DateTimeFormat('id-ID', {
+                timeZone: 'Asia/Jakarta',
+                hour: '2-digit', minute: '2-digit',
+                day: 'numeric', month: 'short',
+              });
+              resetCopy = `Kuota direset ${fmt.format(d)} WIB.`;
+            } catch {}
+          }
+          const kindLabel  = isOcr ? 'foto / file' : 'teks Chat';
+          const otherLabel = isOcr ? 'teks Chat'   : 'foto / file';
+          state.messages.push({
+            role: 'bot',
+            text: `Maaf, kuota harian ${kindLabel} kamu habis (${used}/${limit}). ${resetCopy}\n\nSementara itu, kamu masih bisa pakai ${otherLabel}, atau input transaksi manual lewat tombol ＋ Tambah.`,
+            ts: Date.now(),
+          });
+        } else {
+          state.messages.push({ role: 'bot', text: `Gagal memproses: ${err.message}`, ts: Date.now() });
+        }
         saveState();
         renderChat();
       }
