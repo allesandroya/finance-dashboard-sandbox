@@ -5513,6 +5513,25 @@
               </div>
               <div class="adm-insight-hint">Multi-device pakai push notification yang masih aktif.</div>
             </div>
+            <!-- Device class (from User-Agent) -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Device Class</div>
+              <div class="adm-insight-rows" id="admInsightDeviceClass">
+                <div class="adm-insight-row"><span>📱 Mobile</span><b>—</b></div>
+                <div class="adm-insight-row"><span>💻 Desktop</span><b>—</b></div>
+                <div class="adm-insight-row"><span>📟 Tablet</span><b>—</b></div>
+                <div class="adm-insight-row"><span>❓ Unknown</span><b>—</b></div>
+              </div>
+              <div class="adm-insight-hint">Klasifikasi dari User-Agent header — last seen per user.</div>
+            </div>
+            <!-- Operating system -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Operating System</div>
+              <div class="adm-insight-rows" id="admInsightOS">
+                <div class="adm-insight-row"><span class="text-tertiary">Belum ada data</span><b></b></div>
+              </div>
+              <div class="adm-insight-hint">Top 6 OS — last seen per user.</div>
+            </div>
           </div>
 
           <!-- Hour heatmap (Asia/Jakarta anchor). Rendered as a 7×24 CSS grid. -->
@@ -7857,6 +7876,45 @@ Use the user input carefully, but keep the output minimal and structured. Return
         ];
         host.innerHTML = labels.map(({ key, label }) =>
           `<div class="adm-insight-row"><span>${escapeHtml(label)}</span><b>${Number(d[key] || 0)}</b></div>`
+        ).join('');
+      })();
+      // ---- Device class (mobile / desktop / tablet)
+      (function renderDeviceClass() {
+        const host = document.getElementById('admInsightDeviceClass');
+        if (!host) return;
+        const d = a.devices || {};
+        const rows = [
+          { key: 'mobile',  emoji: '📱', label: 'Mobile' },
+          { key: 'desktop', emoji: '💻', label: 'Desktop' },
+          { key: 'tablet',  emoji: '📟', label: 'Tablet' },
+          { key: 'unknown', emoji: '❓', label: 'Unknown' },
+        ];
+        host.innerHTML = rows.map(({ key, emoji, label }) =>
+          `<div class="adm-insight-row"><span>${emoji} ${escapeHtml(label)}</span><b>${Number(d[key] || 0)}</b></div>`
+        ).join('');
+      })();
+      // ---- Operating system
+      (function renderOS() {
+        const host = document.getElementById('admInsightOS');
+        if (!host) return;
+        const list = Array.isArray(a.os) ? a.os : [];
+        if (!list.length) {
+          host.innerHTML = `<div class="adm-insight-row"><span class="text-tertiary">Belum ada data OS</span><b></b></div>`;
+          return;
+        }
+        const iconFor = (name) => {
+          const n = String(name).toLowerCase();
+          if (n === 'ios')      return '🍎';
+          if (n === 'ipados')   return '🍎';
+          if (n === 'macos')    return '🖥️';
+          if (n === 'android')  return '🤖';
+          if (n === 'windows')  return '🪟';
+          if (n === 'linux')    return '🐧';
+          if (n === 'chromeos') return '🌐';
+          return '❓';
+        };
+        host.innerHTML = list.slice(0, 6).map(({ name, count }) =>
+          `<div class="adm-insight-row"><span>${iconFor(name)} ${escapeHtml(name)}</span><b>${Number(count) || 0}</b></div>`
         ).join('');
       })();
       // ---- Hour heatmap
