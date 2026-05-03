@@ -5995,6 +5995,14 @@
                 <hr style="border: none; border-top: 1px solid var(--border); margin: 4px 0;" />
                 <div class="row-between">
                   <div>
+                    <div style="font-weight: 600; color: #b45309;">Hapus semua transaksi</div>
+                    <div class="text-sm text-muted">Hapus seluruh transaksi (tombstone sync ikut dikirim). Akun, kategori, goals, dan setting tetap aman.</div>
+                  </div>
+                  <button class="btn btn-secondary btn-sm" id="btnDeleteAllTxns" style="border-color:#fbbf24; color:#b45309;">Hapus transaksi</button>
+                </div>
+                <hr style="border: none; border-top: 1px solid var(--border); margin: 4px 0;" />
+                <div class="row-between">
+                  <div>
                     <div style="font-weight: 600; color: var(--danger);">Reset semua data</div>
                     <div class="text-sm text-muted">Hapus semua transaksi, kategori, dan settings.</div>
                   </div>
@@ -9104,10 +9112,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
       );
 
       const buildModeTabs = () => `
-        <div class="migrate-tabs" style="display:flex; gap:6px; padding:4px; background: var(--bg-elev); border-radius: 10px; margin-bottom: 14px;">
-          <button type="button" class="migrate-tab ${_migrateMode === 'all' ? 'active' : ''}" data-migrate-mode="all" style="flex:1; padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'all' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'all' ? '600' : '500'}; font-size:12.5px;">📦 Semua ke 1 akun</button>
-          <button type="button" class="migrate-tab ${_migrateMode === 'amount' ? 'active' : ''}" data-migrate-mode="amount" style="flex:1; padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'amount' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'amount' ? '600' : '500'}; font-size:12.5px;">💰 Per Nominal</button>
-          <button type="button" class="migrate-tab ${_migrateMode === 'detail' ? 'active' : ''}" data-migrate-mode="detail" style="flex:1; padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'detail' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'detail' ? '600' : '500'}; font-size:12.5px;">📝 Per Transaksi</button>
+        <div class="migrate-tabs" style="display:flex; gap:6px; padding:4px; background: var(--bg-elev); border-radius: 10px; margin-bottom: 14px; flex-wrap:wrap;">
+          <button type="button" class="migrate-tab ${_migrateMode === 'all' ? 'active' : ''}" data-migrate-mode="all" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'all' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'all' ? '600' : '500'}; font-size:12.5px;">📦 Semua ke 1 akun</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'amount' ? 'active' : ''}" data-migrate-mode="amount" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'amount' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'amount' ? '600' : '500'}; font-size:12.5px;">💰 Per Nominal</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'detail' ? 'active' : ''}" data-migrate-mode="detail" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'detail' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'detail' ? '600' : '500'}; font-size:12.5px;">📝 Per Transaksi</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'delete' ? 'active' : ''}" data-migrate-mode="delete" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'delete' ? 'rgba(220,38,38,0.12)' : 'transparent'}; color:${_migrateMode === 'delete' ? '#b91c1c' : 'inherit'}; cursor:pointer; font-weight:${_migrateMode === 'delete' ? '700' : '500'}; font-size:12.5px;">🗑️ Hapus Semua</button>
         </div>`;
 
       // Source label for body copy: 'Cash' / 'BCA' / etc, falling back to
@@ -9128,6 +9137,42 @@ Use the user input carefully, but keep the output minimal and structured. Return
                   <option value="">- Pilih akun -</option>
                   ${acctOptions}
                 </select>
+              </div>
+            </div>`;
+        }
+        if (_migrateMode === 'delete') {
+          // Sum + breakdown so the user sees what they're about to nuke.
+          let income = 0, expense = 0;
+          for (const t of untagged) {
+            if (t.Type === 'Income') income += Number(t.Value || 0);
+            else if (t.Type === 'Expense') expense += Number(t.Value || 0);
+          }
+          return `${tabs}
+            <div class="stack-sm">
+              <div style="padding:12px 14px; background:rgba(220,38,38,0.08); border:1px solid rgba(220,38,38,0.25); border-radius:8px;">
+                <div style="display:flex; align-items:center; gap:8px; font-weight:600; color:#b91c1c; margin-bottom:6px;">
+                  ⚠️ Aksi destruktif — tidak bisa di-undo
+                </div>
+                <p class="text-sm" style="margin:0; color:var(--text-secondary); line-height:1.5;">
+                  Akan menghapus <strong>${untagged.length} transaksi</strong> dari <strong>${escapeHtml(srcLabel)}</strong>.
+                  Akun, kategori, dan setting lain tidak ikut terhapus. Tombstone sync dikirim supaya device lain juga ikut terhapus.
+                </p>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div style="padding:10px; background:var(--bg-elev); border-radius:8px;">
+                  <div class="text-sm text-muted" style="font-size:11px;">Income yang dihapus</div>
+                  <div style="font-weight:600; color:var(--accent); margin-top:2px;">${formatRupiah(income)}</div>
+                </div>
+                <div style="padding:10px; background:var(--bg-elev); border-radius:8px;">
+                  <div class="text-sm text-muted" style="font-size:11px;">Expense yang dihapus</div>
+                  <div style="font-weight:600; color:var(--danger); margin-top:2px;">${formatRupiah(expense)}</div>
+                </div>
+              </div>
+              <div>
+                <label class="row" style="gap:8px; align-items:flex-start; cursor:pointer;">
+                  <input type="checkbox" id="migrateDeleteConfirm" style="margin-top:3px;" />
+                  <span class="text-sm">Saya paham — hapus semua ${untagged.length} transaksi ini permanen.</span>
+                </label>
               </div>
             </div>`;
         }
@@ -9257,6 +9302,26 @@ Use the user input carefully, but keep the output minimal and structured. Return
             label: 'Migrasikan', className: 'btn-primary', onClick: () => {
               const now = Date.now();
               let count = 0;
+              // Delete mode is destructive — short-circuit before any
+              // re-tag logic. Confirms via the checkbox in the body, then
+              // marks tombstones so multi-device sync propagates the
+              // deletion. Only candidates from `matchesSource` are
+              // touched; other transactions are untouched.
+              if (_migrateMode === 'delete') {
+                const ok = document.getElementById('migrateDeleteConfirm')?.checked;
+                if (!ok) { toast('Centang konfirmasi dulu sebelum hapus.', 'warning'); return; }
+                if (!confirm(`Hapus ${untagged.length} transaksi dari ${srcLabel}? Tidak bisa di-undo.`)) return;
+                const idsToDelete = new Set();
+                for (const t of state.transactions) {
+                  if (matchesSource(t)) idsToDelete.add(t.id);
+                }
+                for (const id of idsToDelete) markTombstone(id);
+                state.transactions = state.transactions.filter((t) => !idsToDelete.has(t.id));
+                refreshAfterMigrate();
+                toast(`${idsToDelete.size} transaksi dari ${srcLabel} dihapus.`, 'success');
+                closeModal();
+                return;
+              }
               // After migration the chosen destination IS an explicit user
               // choice — clear the _autoTagged flag so subsequent renders
               // of the hint don't keep counting them.
@@ -16240,6 +16305,29 @@ Use the user input carefully, but keep the output minimal and structured. Return
         navigateTo('dashboard');
         renderCategories();
         toast('Data ter-reset', 'warning');
+      });
+      // Less destructive than full Reset — keeps accounts, categories,
+      // goals, settings intact, only wipes the transaction list. Marks
+      // tombstones so the deletion propagates to the user's other devices
+      // via cloud sync (otherwise pulling from another device would
+      // resurrect everything).
+      const btnDeleteAllTxns = document.getElementById('btnDeleteAllTxns');
+      if (btnDeleteAllTxns) btnDeleteAllTxns.addEventListener('click', () => {
+        const count = (state.transactions || []).length;
+        if (!count) {
+          toast('Tidak ada transaksi untuk dihapus.', 'info');
+          return;
+        }
+        if (!confirm(`Hapus ${count} transaksi? Akun, kategori, goals, dan setting tetap aman. Tidak bisa di-undo.`)) return;
+        for (const t of state.transactions) {
+          if (t && t.id) markTombstone(t.id);
+        }
+        state.transactions = [];
+        saveState();
+        if (typeof renderDashboard === 'function') renderDashboard();
+        if (typeof renderTransactions === 'function') renderTransactions();
+        if (typeof renderInitialBalances === 'function') renderInitialBalances();
+        toast(`${count} transaksi dihapus. Akun + kategori tetap.`, 'warning');
       });
 
       // Settings - Theme
