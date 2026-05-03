@@ -22,22 +22,11 @@
 
   <!-- Cloudflare Web Analytics (manual mode).
        Manual mode does NOT require the Cloudflare proxy ("orange cloud") to
-       be enabled — the script pings cloudflareinsights.com directly from
-       the browser, so it's safe to use even with DNS-only nameservers. No
-       server-side / Worker / KV impact.
-
-       Setup:
-         1. Open Cloudflare Dashboard → Analytics & Logs → Web Analytics.
-         2. Click "Add a site" → choose "Manual setup".
-         3. Copy the token from the script Cloudflare generates.
-         4. Replace YOUR_TOKEN_HERE below with that token.
-         5. Uncomment the <script> tag.
-       Until then it's a no-op. Revisiting the dashboard later won't break
-       anything if the token is missing. -->
-  <!--
+       be enabled — the beacon script pings cloudflareinsights.com directly
+       from the browser, so it's safe with DNS-only nameservers. No
+       server-side / Worker / KV impact. Includes guest visitors too. -->
   <script defer src="https://static.cloudflareinsights.com/beacon.min.js"
-          data-cf-beacon='{"token": "YOUR_TOKEN_HERE"}'></script>
-  -->
+          data-cf-beacon='{"token": "51c7559471af4fe89ac6079b4ce4f793"}'></script>
 
 
   <style>
@@ -5532,6 +5521,14 @@
               </div>
               <div class="adm-insight-hint">Top 6 OS — last seen per user.</div>
             </div>
+            <!-- Top cities (active in last 30 days) -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Top Cities (30d active)</div>
+              <div class="adm-insight-rows" id="admInsightCities">
+                <div class="adm-insight-row"><span class="text-tertiary">Belum ada data kota</span><b></b></div>
+              </div>
+              <div class="adm-insight-hint">Cloudflare edge IP-geo — approximate, fokus user yang aktif 30 hari terakhir.</div>
+            </div>
           </div>
 
           <!-- Hour heatmap (Asia/Jakarta anchor). Rendered as a 7×24 CSS grid. -->
@@ -7915,6 +7912,25 @@ Use the user input carefully, but keep the output minimal and structured. Return
         };
         host.innerHTML = list.slice(0, 6).map(({ name, count }) =>
           `<div class="adm-insight-row"><span>${iconFor(name)} ${escapeHtml(name)}</span><b>${Number(count) || 0}</b></div>`
+        ).join('');
+      })();
+      // ---- Top cities
+      (function renderCities() {
+        const host = document.getElementById('admInsightCities');
+        if (!host) return;
+        const list = Array.isArray(a.cities) ? a.cities : [];
+        if (!list.length) {
+          host.innerHTML = `<div class="adm-insight-row"><span class="text-tertiary">Belum ada data kota</span><b></b></div>`;
+          return;
+        }
+        const flagFor = (code) => {
+          const c = String(code || '').toUpperCase();
+          if (c.length !== 2 || !/^[A-Z]{2}$/.test(c)) return '🌐';
+          const A = 0x1F1E6;
+          return String.fromCodePoint(A + (c.charCodeAt(0) - 65), A + (c.charCodeAt(1) - 65));
+        };
+        host.innerHTML = list.map(({ city, country, count }) =>
+          `<div class="adm-insight-row"><span>${flagFor(country)} ${escapeHtml(city || '—')} <span class="text-tertiary" style="font-size:11px;">${escapeHtml(country || '')}</span></span><b>${Number(count) || 0}</b></div>`
         ).join('');
       })();
       // ---- Hour heatmap
