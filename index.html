@@ -20,6 +20,26 @@
   <link rel="apple-touch-icon" href="assets/inputin-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
+  <!-- Cloudflare Web Analytics (manual mode).
+       Manual mode does NOT require the Cloudflare proxy ("orange cloud") to
+       be enabled — the script pings cloudflareinsights.com directly from
+       the browser, so it's safe to use even with DNS-only nameservers. No
+       server-side / Worker / KV impact.
+
+       Setup:
+         1. Open Cloudflare Dashboard → Analytics & Logs → Web Analytics.
+         2. Click "Add a site" → choose "Manual setup".
+         3. Copy the token from the script Cloudflare generates.
+         4. Replace YOUR_TOKEN_HERE below with that token.
+         5. Uncomment the <script> tag.
+       Until then it's a no-op. Revisiting the dashboard later won't break
+       anything if the token is missing. -->
+  <!--
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+          data-cf-beacon='{"token": "YOUR_TOKEN_HERE"}'></script>
+  -->
+
+
   <style>
     /* Splash screen — early styles so it paints before the main stylesheet
        loads. Shown only on PWA standalone launches (display-mode: standalone)
@@ -2258,6 +2278,74 @@
       color: #fca5a5;
       background: rgba(127, 29, 29, 0.35);
     }
+
+    /* Behavior Insights cards. Compact grid of stat blocks that share a
+       common look — title, rows of label/value pairs, optional hint line. */
+    .adm-insight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .adm-insight-card { padding: 14px 16px; }
+    .adm-insight-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+    .adm-insight-rows {
+      display: flex; flex-direction: column; gap: 6px;
+      font-size: 13px;
+    }
+    .adm-insight-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+    }
+    .adm-insight-row > span:first-child { color: var(--text-secondary); }
+    .adm-insight-row > b { font-weight: 600; color: var(--text-primary); }
+    .adm-insight-hint {
+      font-size: 11px; color: var(--text-tertiary);
+      margin-top: 10px; line-height: 1.45;
+    }
+
+    /* Hour heatmap — 7 rows × 24 cols. Cells use a single hue (teal) at
+       varying opacity, plus a hard "no data" treatment for zero. */
+    .adm-heatmap {
+      display: grid;
+      grid-template-columns: 36px repeat(24, minmax(18px, 1fr));
+      gap: 2px;
+      font-size: 10px;
+      color: var(--text-tertiary);
+    }
+    .adm-heatmap-hour-row {
+      display: contents;
+    }
+    .adm-heatmap-hour-row > .adm-heatmap-day {
+      display: flex; align-items: center; justify-content: flex-end;
+      padding-right: 6px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .adm-heatmap-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 3px;
+      background: var(--surface-2, #f1f5f9);
+      transition: transform .12s ease;
+    }
+    .adm-heatmap-cell:hover { transform: scale(1.15); }
+    .adm-heatmap-header {
+      display: contents;
+      font-size: 9px;
+      color: var(--text-tertiary);
+    }
+    .adm-heatmap-header > div {
+      text-align: center;
+      padding-bottom: 2px;
+    }
+    [data-theme="dark"] .adm-heatmap-cell { background: rgba(148, 163, 184, 0.12); }
 
     /* ============== TELEGRAM PREVIEW ============== */
     .tg-preview {
@@ -5375,6 +5463,76 @@
           <div style="margin-top:14px; font-size:12px; color:var(--text-tertiary); padding:0 4px;" id="admDataNote">
             Real-time data dari Cloudflare KV. Klik baris untuk edit field per user.
           </div>
+
+          <!-- Behavior Insights — populated from the same /api/admin/users
+               response. Renders aggregate metrics (active windows,
+               retention, geo, hour heatmap, devices, stale users, power
+               users) so admin can decide pricing / outreach without
+               browsing the table row by row. -->
+          <div style="margin-top:28px; margin-bottom:10px; padding:0 4px;">
+            <div style="font-size:13px; font-weight:700; color:var(--text-secondary); letter-spacing:0.4px; text-transform:uppercase;">📊 Behavior Insights</div>
+            <div style="font-size:12px; color:var(--text-tertiary); margin-top:2px;">Aggregated dari semua user · refresh saat halaman dibuka</div>
+          </div>
+
+          <div class="adm-insight-grid">
+            <!-- Active windows -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Active Windows</div>
+              <div class="adm-insight-rows" id="admInsightActive">
+                <div class="adm-insight-row"><span>Hari ini</span><b>—</b></div>
+                <div class="adm-insight-row"><span>7 hari terakhir</span><b>—</b></div>
+                <div class="adm-insight-row"><span>30 hari terakhir</span><b>—</b></div>
+              </div>
+            </div>
+            <!-- Retention cohorts -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Retention</div>
+              <div class="adm-insight-rows" id="admInsightRetention">
+                <div class="adm-insight-row"><span>D1</span><b>—</b></div>
+                <div class="adm-insight-row"><span>D7</span><b>—</b></div>
+                <div class="adm-insight-row"><span>D30</span><b>—</b></div>
+              </div>
+              <div class="adm-insight-hint">% user dari cohort yang masih aktif di window itu.</div>
+            </div>
+            <!-- Geo -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Geo Distribution</div>
+              <div class="adm-insight-rows" id="admInsightGeo">
+                <div class="adm-insight-row"><span class="text-tertiary">Belum ada data</span><b></b></div>
+              </div>
+              <div class="adm-insight-hint">Data: Cloudflare edge geo header.</div>
+            </div>
+            <!-- Devices distribution -->
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Devices per User</div>
+              <div class="adm-insight-rows" id="admInsightDevices">
+                <div class="adm-insight-row"><span>0 device</span><b>—</b></div>
+                <div class="adm-insight-row"><span>1 device</span><b>—</b></div>
+                <div class="adm-insight-row"><span>2 devices</span><b>—</b></div>
+                <div class="adm-insight-row"><span>3+ devices</span><b>—</b></div>
+              </div>
+              <div class="adm-insight-hint">Multi-device pakai push notification yang masih aktif.</div>
+            </div>
+          </div>
+
+          <!-- Hour heatmap (Asia/Jakarta anchor). Rendered as a 7×24 CSS grid. -->
+          <div class="ds-card adm-insight-card" style="margin-top:14px;">
+            <div class="adm-insight-title">Active Hours Heatmap <span style="font-weight:400; font-size:11px; color:var(--text-tertiary); text-transform:none; letter-spacing:0;">(WIB)</span></div>
+            <div id="admInsightHeatmap" style="overflow-x:auto; padding-top:6px;"></div>
+          </div>
+
+          <!-- Power users + Stale users side by side -->
+          <div class="adm-insight-grid" style="margin-top:14px; grid-template-columns: 1fr 1fr;">
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Top 10 Power Users</div>
+              <div id="admInsightPower" style="font-size:12px;"></div>
+            </div>
+            <div class="ds-card adm-insight-card">
+              <div class="adm-insight-title">Stale Users (>14 hari)</div>
+              <div id="admInsightStale" style="font-size:12px;"></div>
+              <div class="adm-insight-hint">Kandidat reactivation campaign.</div>
+            </div>
+          </div>
         </section>
 
         <!-- CHAT -->
@@ -7575,6 +7733,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
     // view is opened or after a successful update. The Search / Filter / Sort
     // controls operate on this cache so typing isn't blocked on the network.
     let admUsers = [];
+    let admAnalytics = null; // aggregate insights from /api/admin/users
     let admLoading = false;
     let admErrorMsg = '';
 
@@ -7592,9 +7751,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
         admUsers = Array.isArray(data.users) ? data.users : [];
+        admAnalytics = data.analytics || null;
       } catch (err) {
         admErrorMsg = err.message || 'Gagal load user';
         admUsers = [];
+        admAnalytics = null;
       } finally {
         admLoading = false;
       }
@@ -7630,6 +7791,164 @@ Use the user input carefully, but keep the output minimal and structured. Return
       set('admAvgAttemptsTrend', `total ${totalAttempts} / ${total} users`);
 
       renderAdminTable();
+      renderAdminInsights();
+    }
+
+    // Render the Behavior Insights section. Reads admAnalytics (set by
+    // fetchAdminUsers from the worker response) and paints all six cards
+    // plus the heatmap. Robust to missing fields — older worker versions
+    // that don't emit `analytics` will leave most cards blank.
+    function renderAdminInsights() {
+      const a = admAnalytics || {};
+      // ---- Active windows
+      (function renderActive() {
+        const host = document.getElementById('admInsightActive');
+        if (!host) return;
+        const aw = a.activeWindows || {};
+        host.innerHTML = `
+          <div class="adm-insight-row"><span>Hari ini</span><b>${Number(aw.today || 0)}</b></div>
+          <div class="adm-insight-row"><span>7 hari terakhir</span><b>${Number(aw.week  || 0)}</b></div>
+          <div class="adm-insight-row"><span>30 hari terakhir</span><b>${Number(aw.month || 0)}</b></div>
+        `;
+      })();
+      // ---- Retention
+      (function renderRetention() {
+        const host = document.getElementById('admInsightRetention');
+        if (!host) return;
+        const r = a.retention || {};
+        const rowFor = (label, b) => {
+          const ratio = Number(b?.ratio || 0);
+          const pct = (ratio * 100).toFixed(0);
+          const det = b ? `${b.retained}/${b.eligible}` : '0/0';
+          return `<div class="adm-insight-row"><span>${label}</span><b>${pct}% <span style="font-weight:400; color:var(--text-tertiary); font-size:11px;">(${det})</span></b></div>`;
+        };
+        host.innerHTML = rowFor('D1', r.D1) + rowFor('D7', r.D7) + rowFor('D30', r.D30);
+      })();
+      // ---- Geo
+      (function renderGeo() {
+        const host = document.getElementById('admInsightGeo');
+        if (!host) return;
+        const g = Array.isArray(a.geo) ? a.geo : [];
+        if (!g.length) {
+          host.innerHTML = `<div class="adm-insight-row"><span class="text-tertiary">Belum ada data geo</span><b></b></div>`;
+          return;
+        }
+        const flagFor = (code) => {
+          const c = String(code || '').toUpperCase();
+          if (c.length !== 2 || !/^[A-Z]{2}$/.test(c)) return '🌐';
+          // ISO-3166 2-letter → regional indicator emoji
+          const A = 0x1F1E6;
+          return String.fromCodePoint(A + (c.charCodeAt(0) - 65), A + (c.charCodeAt(1) - 65));
+        };
+        host.innerHTML = g.map(({ code, count }) =>
+          `<div class="adm-insight-row"><span>${flagFor(code)} ${escapeHtml(code === 'UNK' ? 'Tidak diketahui' : code)}</span><b>${Number(count) || 0}</b></div>`
+        ).join('');
+      })();
+      // ---- Devices distribution
+      (function renderDevices() {
+        const host = document.getElementById('admInsightDevices');
+        if (!host) return;
+        const d = a.deviceDistribution || {};
+        const labels = [
+          { key: '0',  label: '0 device (logout / belum push-on)' },
+          { key: '1',  label: '1 device' },
+          { key: '2',  label: '2 devices' },
+          { key: '3+', label: '3+ devices' },
+        ];
+        host.innerHTML = labels.map(({ key, label }) =>
+          `<div class="adm-insight-row"><span>${escapeHtml(label)}</span><b>${Number(d[key] || 0)}</b></div>`
+        ).join('');
+      })();
+      // ---- Hour heatmap
+      (function renderHeatmap() {
+        const host = document.getElementById('admInsightHeatmap');
+        if (!host) return;
+        const hm = a.hourHeatmap || {};
+        const grid = hm.grid || {};
+        const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+        const dayLabel = { Mon:'Sen', Tue:'Sel', Wed:'Rab', Thu:'Kam', Fri:'Jum', Sat:'Sab', Sun:'Min' };
+        // Find the max value to scale opacity. Avoid divide-by-zero.
+        let maxVal = 0;
+        for (const v of Object.values(grid)) if (v > maxVal) maxVal = Number(v) || 0;
+        if (!maxVal) {
+          host.innerHTML = `<div class="text-tertiary" style="font-size:12px; padding:8px 0;">Belum ada data aktivitas. Heatmap akan terisi setelah user mulai pakai Chat Bot.</div>`;
+          return;
+        }
+        // Header row of hour labels (every 3 hours to keep it compact)
+        let html = `<div class="adm-heatmap">`;
+        html += `<div class="adm-heatmap-header"><div></div>` +
+          Array.from({ length: 24 }, (_, h) => `<div>${(h % 3 === 0) ? h : ''}</div>`).join('') + `</div>`;
+        for (const d of days) {
+          html += `<div class="adm-heatmap-hour-row"><div class="adm-heatmap-day">${dayLabel[d]}</div>`;
+          for (let h = 0; h < 24; h++) {
+            const v = Number(grid[`${d}-${h}`] || 0);
+            const ratio = v / maxVal;
+            // Teal hue, opacity scales with usage. Min visible 0.08 if any data.
+            const op = v ? Math.max(0.12, ratio).toFixed(2) : 0;
+            const bg = v ? `background: rgba(20, 184, 166, ${op});` : '';
+            html += `<div class="adm-heatmap-cell" style="${bg}" title="${dayLabel[d]} ${String(h).padStart(2,'0')}:00 — ${v} hits"></div>`;
+          }
+          html += `</div>`;
+        }
+        html += `</div>`;
+        // Peak summary
+        const peak = hm.peak || { key: '', value: 0 };
+        if (peak.value > 0 && peak.key) {
+          const [pd, ph] = peak.key.split('-');
+          html += `<div style="margin-top:10px; font-size:12px; color:var(--text-secondary);">Peak: <b>${dayLabel[pd] || pd} ${String(ph).padStart(2,'0')}:00</b> (${peak.value} hits) · anchor: WIB</div>`;
+        }
+        host.innerHTML = html;
+      })();
+      // ---- Power users
+      (function renderPower() {
+        const host = document.getElementById('admInsightPower');
+        if (!host) return;
+        const list = Array.isArray(a.powerUsers) ? a.powerUsers : [];
+        if (!list.length) {
+          host.innerHTML = `<div class="text-tertiary" style="padding:6px 0;">Belum ada power user.</div>`;
+          return;
+        }
+        host.innerHTML = `
+          <table class="ds-table" style="width:100%; font-size:12px;">
+            <thead>
+              <tr><th>#</th><th>User</th><th class="num">Total</th><th class="num">Devices</th></tr>
+            </thead>
+            <tbody>
+              ${list.map((u, i) => `
+                <tr>
+                  <td>${i + 1}.</td>
+                  <td>${escapeHtml(u.email || u.name || u.userId || '—')}</td>
+                  <td class="num">${u.total} <span class="text-tertiary" style="font-size:10px;">(${u.text}T/${u.ocr}O)</span></td>
+                  <td class="num">${u.devices || 0}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>`;
+      })();
+      // ---- Stale users
+      (function renderStale() {
+        const host = document.getElementById('admInsightStale');
+        if (!host) return;
+        const list = Array.isArray(a.staleUsers) ? a.staleUsers : [];
+        if (!list.length) {
+          host.innerHTML = `<div class="text-tertiary" style="padding:6px 0;">Tidak ada user stale 🎉 — semua aktif dalam 14 hari.</div>`;
+          return;
+        }
+        host.innerHTML = `
+          <table class="ds-table" style="width:100%; font-size:12px;">
+            <thead>
+              <tr><th>User</th><th class="num">Hari inaktif</th></tr>
+            </thead>
+            <tbody>
+              ${list.map((u) => `
+                <tr>
+                  <td>${escapeHtml(u.email || u.name || u.userId || '—')}</td>
+                  <td class="num">${u.daysInactive}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>`;
+      })();
     }
 
     function fmtTimestamp(ts) {
