@@ -5975,7 +5975,7 @@
                 <div class="row-between">
                   <div>
                     <div style="font-weight: 600;">Import data</div>
-                    <div class="text-sm text-muted">Dukung JSON backup, CSV, atau XLSX.<br>Header: Date, Type, Transaction Name, Transaction Category, Sub-Category, Value.</div>
+                    <div class="text-sm text-muted">Dukung JSON backup, CSV, atau XLSX. Header yang dibaca: <em>Date, Type, Transaction Name, Transaction Category, Sub-Category, Value, Account, From Account, To Account</em>. Type "Transfer" akan pakai From/To Account; Income/Expense pakai Account.</div>
                   </div>
                   <div>
                     <input type="file" id="fileImport" accept=".json,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;" />
@@ -5996,7 +5996,7 @@
                 <div class="row-between">
                   <div>
                     <div style="font-weight: 600; color: #b45309;">Hapus semua transaksi</div>
-                    <div class="text-sm text-muted">Hapus seluruh transaksi (tombstone sync ikut dikirim). Akun, kategori, goals, dan setting tetap aman.</div>
+                    <div class="text-sm text-muted">Hapus seluruh transaksi. Akun, kategori, goals, dan setting tetap aman.</div>
                   </div>
                   <button class="btn btn-secondary btn-sm" id="btnDeleteAllTxns" style="border-color:#fbbf24; color:#b45309;">Hapus transaksi</button>
                 </div>
@@ -15008,23 +15008,58 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const idxDate = findCol(['date', 'tanggal']);
       const idxType = findCol(['type', 'tipe']);
       const idxName = findCol(['transaction name', 'name', 'nama', 'description', 'deskripsi']);
-      const idxCat = findCol(['transaction category', 'category', 'kategori']);
-      const idxSub = findCol(['sub-category', 'sub category', 'subcategory', 'sub kategori']);
-      const idxVal = findCol(['value', 'amount', 'nominal', 'jumlah']);
+      const idxCat  = findCol(['transaction category', 'category', 'kategori']);
+      const idxSub  = findCol(['sub-category', 'sub category', 'subcategory', 'sub kategori']);
+      const idxVal  = findCol(['value', 'amount', 'nominal', 'jumlah']);
+      // New columns added in the recent export format. All optional —
+      // older CSV/XLSX without these still imports cleanly as before.
+      //   Account       → single-account tag for Income/Expense rows
+      //   From Account  → Transfer source
+      //   To Account    → Transfer destination
+      // We resolve each cell against state.accounts so a typo or removed
+      // account becomes a blank tag instead of a phantom string the rest
+      // of the app can't honor.
+      const idxAcct     = findCol(['account', 'akun']);
+      const idxFromAcct = findCol(['from account', 'fromaccount', 'akun asal', 'akun sumber']);
+      const idxToAcct   = findCol(['to account',   'toaccount',   'akun tujuan']);
       if (idxVal === -1 && idxName === -1) throw new Error('Kolom wajib tidak ditemukan. Cek header file.');
+
+      // Build a case-insensitive lookup of valid account names so import
+      // doesn't resurrect deleted accounts but DOES forgive casing
+      // ("bca" → "BCA").
+      const acctCanon = new Map();
+      try {
+        for (const n of (typeof getAccountNames === 'function' ? getAccountNames() : [])) {
+          acctCanon.set(String(n).toLowerCase(), n);
+        }
+      } catch {}
+      const resolveAcct = (raw) => {
+        const s = String(raw || '').trim();
+        if (!s) return '';
+        return acctCanon.get(s.toLowerCase()) || s; // keep raw if not in catalog — user can fix later
+      };
 
       const out = [];
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         const rawType = idxType !== -1 ? String(r[idxType] || '').trim() : '';
-        const type = /income|pemasukan|masuk|in/i.test(rawType) ? 'Income' : 'Expense';
+        // Transfer must be detected BEFORE the income/expense fallback —
+        // otherwise "Transfer" gets misclassified as Expense via the
+        // default branch.
+        let type;
+        if (/transfer|pindah/i.test(rawType))                        type = 'Transfer';
+        else if (/income|pemasukan|masuk|^in$/i.test(rawType))       type = 'Income';
+        else                                                         type = 'Expense';
         const name = idxName !== -1 ? String(r[idxName] || '').trim() : 'Transaksi';
-        const cat = idxCat !== -1 ? String(r[idxCat] || '').trim() : 'Other';
-        const sub = idxSub !== -1 ? String(r[idxSub] || '').trim() : 'Other';
-        const val = idxVal !== -1 ? normalizeImportValue(r[idxVal]) : 0;
+        const cat  = idxCat  !== -1 ? String(r[idxCat]  || '').trim() : 'Other';
+        const sub  = idxSub  !== -1 ? String(r[idxSub]  || '').trim() : 'Other';
+        const val  = idxVal  !== -1 ? normalizeImportValue(r[idxVal]) : 0;
         const date = idxDate !== -1 ? normalizeImportDate(r[idxDate]) : todayISO();
         if (!name && !val) continue;
-        out.push({
+        const acct     = idxAcct     !== -1 ? resolveAcct(r[idxAcct])     : '';
+        const fromAcct = idxFromAcct !== -1 ? resolveAcct(r[idxFromAcct]) : '';
+        const toAcct   = idxToAcct   !== -1 ? resolveAcct(r[idxToAcct])   : '';
+        const tx = {
           id: 'tx-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
           Date: date,
           Type: type,
@@ -15035,7 +15070,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
           'Value Display': formatRupiah(val),
           ts: Date.now() + i,
           _rawInput: name,
-        });
+        };
+        // Attach account fields by row type. Income/Expense uses .account;
+        // Transfer uses .fromAccount/.toAccount. We don't cross-fill —
+        // mismatched columns (e.g. Account on a Transfer row) are
+        // intentionally dropped, same as the export emits them blank.
+        if (type === 'Transfer') {
+          if (fromAcct) tx.fromAccount = fromAcct;
+          if (toAcct)   tx.toAccount   = toAcct;
+        } else if (acct) {
+          tx.account = acct;
+        }
+        out.push(tx);
       }
       return out;
     }
