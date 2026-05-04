@@ -6231,6 +6231,26 @@
             </div>
             -->
 
+            <!-- Privacy & Security card placed above About so users see it
+                 before the marketing copy. Honest framing — admin technically
+                 has access to KV state via worker code, so we don't claim
+                 "developer can't see your data" (would be misleading); we
+                 commit to not selling/sharing/routinely viewing instead. -->
+            <div class="card">
+              <div class="card-title mb-3">🔒 Privasi & Keamanan</div>
+              <div class="text-sm text-muted" style="line-height: 1.7;">
+                Datamu adalah milikmu. Berikut cara kami menanganinya:
+                <ul style="margin:10px 0 0; padding-left:20px; display:flex; flex-direction:column; gap:6px;">
+                  <li><strong>Offline-first</strong>. Semua transaksi disimpan di browser kamu sendiri (localStorage). App tetap jalan tanpa internet.</li>
+                  <li><strong>Sync ke cloud opsional</strong> — aktif hanya kalau kamu login dengan email. Saat sync, data terkirim via HTTPS dan tersimpan di Cloudflare KV terikat ke email kamu.</li>
+                  <li><strong>Tidak dijual, tidak dibagikan</strong>. Kami tidak menjual atau memberikan datamu ke pihak ketiga, untuk iklan atau alasan lain.</li>
+                  <li><strong>Email kamu</strong> hanya dipakai untuk login (magic link / kode 6 digit) dan komunikasi terkait app — tidak ada newsletter promosi.</li>
+                  <li><strong>Akses developer</strong>: secara teknis admin bisa lihat data kamu (lewat worker), tapi hanya dilakukan jika kamu minta dukungan teknis (debug bug). Dalam operasional normal, tidak diakses.</li>
+                  <li><strong>Hapus kapan saja</strong>: tombol <em>Hapus semua transaksi</em> atau <em>Reset semua data</em> di Settings → Data menghapus seluruh data lokal, dan tombstone sync menghapusnya juga di cloud + device lain.</li>
+                </ul>
+              </div>
+            </div>
+
             <div class="card">
               <div class="card-title mb-3">ℹ️ About</div>
               <div class="text-sm text-muted" style="line-height: 1.7;">
@@ -6238,7 +6258,11 @@
                 Aplikasi pencatatan keuangan yang mudah dan otomatis, dirancang untuk membantu kamu lebih konsisten mencatat pemasukan dan pengeluaran tanpa ribet.<br/><br/>
                 Data tersimpan secara lokal di browser, dan dapat disinkronkan ke cloud setelah kamu terdaftar menggunakan email. Seluruh data dijaga aman dengan enkripsi.<br/><br/>
                 Dibuat oleh <a href="https://instagram.com/allesandroya" target="_blank" rel="noopener">@allesandroya</a>.<br/><br/>
-                Psstt... kalo mau tingkatkan juga skill Excel, data analysis, dan automation, kamu bisa cek website <a href="https://kerja.id" target="_blank" rel="noopener">kerja.id</a>.
+                Psstt... kalo mau tingkatkan juga skill Excel, data analysis, dan automation, kamu bisa cek website <a href="https://kerja.id" target="_blank" rel="noopener">kerja.id</a>.<br/><br/>
+                <!-- WhatsApp contact: wa.me deep-link with URL-encoded prefilled
+                     text. Number is in international format (62 + 81944900917).
+                     Opens WhatsApp app on mobile or web.whatsapp.com on desktop. -->
+                Jika ada pertanyaan, diskusi/saran, bisa ke WA <a href="https://wa.me/6281944900917?text=Halo%2C%20saya%20dapat%20nomor%20ini%20dari%20app%20inputIn" target="_blank" rel="noopener">081944900917</a>.
               </div>
             </div>
           </div>
