@@ -5529,6 +5529,14 @@
               </div>
               <div class="adm-insight-hint">Cloudflare edge IP-geo — approximate, fokus user yang aktif 30 hari terakhir.</div>
             </div>
+            <!-- Acquisition channels (first-touch attribution) -->
+            <div class="ds-card adm-insight-card" style="grid-column: span 2;">
+              <div class="adm-insight-title">Acquisition Channels</div>
+              <div class="adm-insight-rows" id="admInsightAcquisition">
+                <div class="adm-insight-row"><span class="text-tertiary">Belum ada data attribution</span><b></b></div>
+              </div>
+              <div class="adm-insight-hint">First-touch dari UTM <code>?utm_source=</code> + referer fallback. "legacy" = user yang signup sebelum tracking aktif.</div>
+            </div>
           </div>
 
           <!-- Hour heatmap (Asia/Jakarta anchor). Rendered as a 7×24 CSS grid. -->
@@ -6357,6 +6365,66 @@
     function deviceLabel() {
       const ua = (navigator.userAgent || '').slice(0, 120);
       return ua;
+    }
+
+    // ---------- ACQUISITION ATTRIBUTION ----------
+    // First-touch sticky: stash UTM params + referer in localStorage on the
+    // very first visit so the original referral isn't lost when the user
+    // wanders around for days before signing up. Worker enforces first-touch
+    // server-side too (won't overwrite an existing utmSource), so calling
+    // this on every load is safe — the SECOND visit's UTM is silently
+    // dropped, exactly what we want.
+    //
+    // Storage keys (LS):
+    //   _attrSource       — utm_source raw string (max 32 chars)
+    //   _attrMedium       — utm_medium raw string (max 32 chars)
+    //   _attrCampaign     — utm_campaign raw string (max 64 chars)
+    //   _attrReferer      — document.referrer (max 200 chars) or '(direct)'
+    //   _attrFirstSeenAt  — ms epoch of first visit
+    function captureAttribution() {
+      try {
+        const params = new URLSearchParams(location.search);
+        const newSource   = String(params.get('utm_source')   || '').trim().slice(0, 32);
+        const newMedium   = String(params.get('utm_medium')   || '').trim().slice(0, 32);
+        const newCampaign = String(params.get('utm_campaign') || '').trim().slice(0, 64);
+        // First-touch wins on UTM. Once set, never overwrite.
+        if (newSource && !localStorage.getItem('_attrSource')) {
+          localStorage.setItem('_attrSource', newSource);
+          if (newMedium)   localStorage.setItem('_attrMedium',   newMedium);
+          if (newCampaign) localStorage.setItem('_attrCampaign', newCampaign);
+        }
+        // Referer first-touch fallback. We always at least record '(direct)'
+        // on the first visit so the worker can distinguish "we never saw a
+        // referer" from "we never even tried to capture one."
+        if (!localStorage.getItem('_attrReferer')) {
+          const ref = String(document.referrer || '').slice(0, 200);
+          localStorage.setItem('_attrReferer', ref || '(direct)');
+        }
+        if (!localStorage.getItem('_attrFirstSeenAt')) {
+          localStorage.setItem('_attrFirstSeenAt', String(Date.now()));
+        }
+      } catch {
+        // localStorage blocked (privacy mode, etc.) — attribution simply
+        // won't be sent on signup. Worker falls back to 'direct'.
+      }
+    }
+
+    // Build the attribution payload for /api/auth/signup + /api/auth/verify.
+    // Returns null if nothing was ever captured — the worker treats null
+    // identically to an empty payload (defaults to 'direct').
+    function getAttribution() {
+      try {
+        const source   = localStorage.getItem('_attrSource')   || '';
+        const medium   = localStorage.getItem('_attrMedium')   || '';
+        const campaign = localStorage.getItem('_attrCampaign') || '';
+        const referer  = localStorage.getItem('_attrReferer')  || '';
+        const fs       = Number(localStorage.getItem('_attrFirstSeenAt') || 0);
+        if (!source && !medium && !campaign && !referer && !fs) return null;
+        return {
+          source, medium, campaign, referer,
+          firstSeenAt: fs || Date.now(),
+        };
+      } catch { return null; }
     }
 
     // Phase 9 - every device gets a locally-generated userId on first boot.
@@ -7940,6 +8008,45 @@ Use the user input carefully, but keep the output minimal and structured. Return
         host.innerHTML = list.map(({ city, country, count }) =>
           `<div class="adm-insight-row"><span>${flagFor(country)} ${escapeHtml(city || '—')} <span class="text-tertiary" style="font-size:11px;">${escapeHtml(country || '')}</span></span><b>${Number(count) || 0}</b></div>`
         ).join('');
+      })();
+      // ---- Acquisition channels (first-touch)
+      (function renderAcquisition() {
+        const host = document.getElementById('admInsightAcquisition');
+        if (!host) return;
+        const list = Array.isArray(a.acquisitionChannels) ? a.acquisitionChannels : [];
+        if (!list.length) {
+          host.innerHTML = `<div class="adm-insight-row"><span class="text-tertiary">Belum ada data attribution</span><b></b></div>`;
+          return;
+        }
+        // Emoji for each canonical channel — fallback ❓ for raw/unknown.
+        const iconFor = (src) => {
+          const k = String(src || '').toLowerCase();
+          if (k === 'linktree')  return '🌳';
+          if (k === 'instagram') return '📷';
+          if (k === 'threads')   return '🧵';
+          if (k === 'tiktok')    return '🎵';
+          if (k === 'twitter')   return '🐦';
+          if (k === 'facebook')  return '👍';
+          if (k === 'whatsapp')  return '💬';
+          if (k === 'telegram')  return '✈️';
+          if (k === 'youtube')   return '▶️';
+          if (k === 'email')     return '📧';
+          if (k === 'google')    return '🔍';
+          if (k === 'bing')      return '🔍';
+          if (k === 'qr')        return '🔲';
+          if (k === 'referral')  return '👥';
+          if (k === 'direct')    return '🔗';
+          if (k === 'legacy')    return '🗂️';
+          return '❓';
+        };
+        const total = list.reduce((s, x) => s + Number(x.count || 0), 0) || 1;
+        host.innerHTML = list.map(({ source, count, avgDaysToSignup }) => {
+          const pct = ((Number(count) / total) * 100).toFixed(0);
+          const days = (avgDaysToSignup != null)
+            ? `<span class="text-tertiary" style="font-size:11px;"> · ~${avgDaysToSignup}d → signup</span>`
+            : '';
+          return `<div class="adm-insight-row"><span>${iconFor(source)} ${escapeHtml(source)}${days}</span><b>${count} <span class="text-tertiary" style="font-size:11px; font-weight:400;">(${pct}%)</span></b></div>`;
+        }).join('');
       })();
       // ---- Hour heatmap
       (function renderHeatmap() {
@@ -15670,6 +15777,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const body = { deviceLabel: deviceLabel() };
       if (linkToken) body.linkToken = linkToken;
       else { body.email = email; body.code = code; }
+      // Attribution forwarded so users who arrive via magic link without
+      // first hitting /api/auth/signup (e.g. clicked link on a different
+      // device) still get first-touch captured at user-create time.
+      const attr = getAttribution();
+      if (attr) body.attribution = attr;
       const res = await fetch(CONFIG.WORKER_URL + '/api/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -15879,7 +15991,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           const res = await fetch(`${CONFIG.WORKER_URL}/api/auth/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, name, waNumber }),
+            body: JSON.stringify({ email, name, waNumber, attribution: getAttribution() }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal daftar');
@@ -17179,7 +17291,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         const res = await fetch(`${CONFIG.WORKER_URL}/api/auth/signup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, name, waNumber }),
+          body: JSON.stringify({ email, name, waNumber, attribution: getAttribution() }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal daftar');
@@ -18940,6 +19052,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
         if (now - _lastTouchEnd < 350) e.preventDefault();
         _lastTouchEnd = now;
       }, { passive: false });
+
+      // Acquisition attribution — capture FIRST so a UTM param can't be
+      // lost to subsequent navigation (single-page app may rewrite the
+      // URL on first render). First-touch sticky in localStorage.
+      try { captureAttribution(); } catch {}
 
       // Ensure state is initialized even for fresh visits
       if (!state) state = defaultState();
