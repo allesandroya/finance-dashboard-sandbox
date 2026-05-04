@@ -2256,6 +2256,42 @@
     }
     .adm-link:hover { text-decoration: underline; }
 
+    /* Migrate-modal tab switcher. The 4 tabs (Semua / Per Nominal / Per
+       Transaksi / Hapus Semua) used to look like a static list — users
+       didn't realize they were clickable. This styling adds clear
+       affordance: hover lift + active state with accent border + shadow. */
+    .migrate-tabs { position: relative; }
+    .migrate-tab {
+      transition: background 160ms ease, transform 120ms ease,
+                  box-shadow 160ms ease, color 120ms ease, border-color 160ms ease;
+      border: 1px solid transparent !important;
+      color: var(--text-secondary);
+      position: relative;
+    }
+    .migrate-tab:hover:not(.active) {
+      background: rgba(22, 163, 74, 0.06) !important;
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+    .migrate-tab.active {
+      background: var(--bg) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border) !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    /* Special-case the destructive Hapus Semua tab — keeps red theme on
+       active to signal "destructive selected". */
+    .migrate-tab[data-migrate-mode="delete"].active {
+      background: rgba(220, 38, 38, 0.10) !important;
+      border-color: rgba(220, 38, 38, 0.3) !important;
+      color: #b91c1c !important;
+      box-shadow: 0 1px 3px rgba(220, 38, 38, 0.15);
+    }
+    .migrate-tab[data-migrate-mode="delete"]:hover:not(.active) {
+      background: rgba(220, 38, 38, 0.06) !important;
+      color: #b91c1c;
+    }
+
     /* Quota cell that has reached its daily limit. Soft red tint plus bold so
        admins can scan the table at a glance for users hitting their cap. */
     .adm-quota-hot {
@@ -9239,13 +9275,24 @@ Use the user input carefully, but keep the output minimal and structured. Return
         (a.Date || '').localeCompare(b.Date || '') || (Number(a.ts) || 0) - (Number(b.ts) || 0)
       );
 
-      const buildModeTabs = () => `
+      // Common base styles for every tab live in the .migrate-tab CSS class
+      // (see <style>); only layout (flex sizing) stays inline so the 2x2
+      // wrap behavior is colocated with the markup. Active state is the
+      // .active class — no inline overrides needed.
+      const buildModeTabs = () => {
+        const tabBase = 'flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; cursor:pointer; font-weight:600; font-size:12.5px;';
+        return `
+        <div style="font-size:11px; color:var(--text-tertiary); margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M9 18l6-6-6-6"/></svg>
+          Pilih cara migrasi (klik tab untuk ganti)
+        </div>
         <div class="migrate-tabs" style="display:flex; gap:6px; padding:4px; background: var(--bg-elev); border-radius: 10px; margin-bottom: 14px; flex-wrap:wrap;">
-          <button type="button" class="migrate-tab ${_migrateMode === 'all' ? 'active' : ''}" data-migrate-mode="all" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'all' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'all' ? '600' : '500'}; font-size:12.5px;">📦 Semua ke 1 akun</button>
-          <button type="button" class="migrate-tab ${_migrateMode === 'amount' ? 'active' : ''}" data-migrate-mode="amount" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'amount' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'amount' ? '600' : '500'}; font-size:12.5px;">💰 Per Nominal</button>
-          <button type="button" class="migrate-tab ${_migrateMode === 'detail' ? 'active' : ''}" data-migrate-mode="detail" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'detail' ? 'var(--bg)' : 'transparent'}; cursor:pointer; font-weight:${_migrateMode === 'detail' ? '600' : '500'}; font-size:12.5px;">📝 Per Transaksi</button>
-          <button type="button" class="migrate-tab ${_migrateMode === 'delete' ? 'active' : ''}" data-migrate-mode="delete" style="flex:1 1 calc(50% - 6px); padding:8px 10px; border-radius:8px; border:none; background:${_migrateMode === 'delete' ? 'rgba(220,38,38,0.12)' : 'transparent'}; color:${_migrateMode === 'delete' ? '#b91c1c' : 'inherit'}; cursor:pointer; font-weight:${_migrateMode === 'delete' ? '700' : '500'}; font-size:12.5px;">🗑️ Hapus Semua</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'all'    ? 'active' : ''}" data-migrate-mode="all"    style="${tabBase}">📦 Semua ke 1 akun</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'amount' ? 'active' : ''}" data-migrate-mode="amount" style="${tabBase}">💰 Per Nominal</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'detail' ? 'active' : ''}" data-migrate-mode="detail" style="${tabBase}">📝 Per Transaksi</button>
+          <button type="button" class="migrate-tab ${_migrateMode === 'delete' ? 'active' : ''}" data-migrate-mode="delete" style="${tabBase}">🗑️ Hapus Semua</button>
         </div>`;
+      };
 
       // Source label for body copy: 'Cash' / 'BCA' / etc, falling back to
       // "tanpa akun" for the legacy untagged-only flow.
