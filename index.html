@@ -10584,9 +10584,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <div>
             <label class="label">Periode</label>
             <select class="select" id="bpPeriod">
-              <option value="daily"   ${initialPeriod === 'daily'   ? 'selected' : ''}>Harian — reset tiap hari</option>
-              <option value="weekly"  ${initialPeriod === 'weekly'  ? 'selected' : ''}>Mingguan — reset tiap Senin</option>
-              <option value="monthly" ${initialPeriod === 'monthly' ? 'selected' : ''}>Bulanan — reset tiap awal bulan</option>
+              <option value="daily"   ${initialPeriod === 'daily'   ? 'selected' : ''}>Harian - reset tiap hari</option>
+              <option value="weekly"  ${initialPeriod === 'weekly'  ? 'selected' : ''}>Mingguan - reset tiap Senin</option>
+              <option value="monthly" ${initialPeriod === 'monthly' ? 'selected' : ''}>Bulanan - reset tiap awal bulan</option>
             </select>
           </div>
           <div>
@@ -16642,50 +16642,116 @@ Use the user input carefully, but keep the output minimal and structured. Return
       });
       const btnSheetsGuide = document.getElementById('btnSheetsGuide');
       if (btnSheetsGuide) btnSheetsGuide.addEventListener('click', showSheetsGuide);
-      document.getElementById('btnReset').addEventListener('click', async () => {
-        if (!confirm('Yakin? Semua data akan terhapus permanen.')) return;
-        // Multi-step reset that also wipes the CLOUD copy so re-login
-        // doesn't resurrect old state via /api/sync/pull. Previously this
-        // only cleared localStorage; debounced sync push then no-op'd
-        // because state.auth was already empty (uid check fails), leaving
-        // the cloud blob untouched. On next login → mergeState restored
-        // everything. Now we push an empty blob FIRST while the session
-        // is still valid, then sign out, then nuke local.
+      document.getElementById('btnReset').addEventListener('click', () => {
+        // Two-path reset modal:
+        //   1) Device-only — wipe localStorage but leave the user's cloud
+        //      blob alone. Useful for "this device is being passed on" or
+        //      "I want to start fresh here but keep my data on phone".
+        //      Local session is cleared too so a stale auto-pull doesn't
+        //      immediately resurrect data; logging back in pulls cloud.
+        //   2) Local + Cloud — full nuke. Push empty state to cloud, sign
+        //      out server-side, wipe local, reload. Re-login won't bring
+        //      anything back because cloud is empty too.
         const token = getSessionToken();
-        const wasLoggedIn = !!token;
-        if (wasLoggedIn) {
-          try {
-            // Push empty state with current valid token. The server sees
-            // a clean slate; any pull from another device after this
-            // will merge against an empty cloud state (effectively a
-            // no-op for resurrection).
-            await fetch(CONFIG.WORKER_URL + '/api/sync/push', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify({ state: defaultState(), deviceLabel: deviceLabel() }),
-            });
-          } catch {
-            // Network failure is fine — we still proceed with local
-            // wipe; cloud will remain stale until next manual sync from
-            // any device with a clean state. The UX hint below mentions
-            // it so the user isn't surprised.
+        const isLoggedIn = !!token;
+        const cloudHint = isLoggedIn
+          ? 'Data juga dihapus dari cloud — device lain yang sync ke akun ini juga ikut bersih.'
+          : 'Kamu belum login, jadi tidak ada data di cloud yang perlu dihapus.';
+
+        const body = `
+          <div class="stack-sm">
+            <p class="text-sm" style="margin:0; line-height:1.55;">
+              Pilih cara reset. Aksi ini tidak bisa di-undo.
+            </p>
+
+            <button type="button" id="resetLocalOnlyBtn"
+              style="display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left; padding:14px 16px; border-radius:10px; border:1px solid #fbbf24; background:rgba(251, 191, 36, 0.08); cursor:pointer; transition:background 140ms ease, transform 120ms ease;">
+              <div style="font-weight:700; color:#b45309; display:flex; align-items:center; gap:8px;">
+                📱 Reset device ini saja
+              </div>
+              <div class="text-sm" style="color:var(--text-secondary); line-height:1.5;">
+                Hapus data di browser ini. <strong>Data di cloud (akun email) tetap utuh</strong>. Login ulang dengan email yang sama akan mengembalikan datamu — pakai opsi ini kalau cuma mau bersihin device tertentu.
+              </div>
+            </button>
+
+            <button type="button" id="resetEverythingBtn"
+              style="display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left; padding:14px 16px; border-radius:10px; border:1px solid rgba(220,38,38,0.45); background:rgba(220,38,38,0.06); cursor:pointer; transition:background 140ms ease, transform 120ms ease;">
+              <div style="font-weight:700; color:#b91c1c; display:flex; align-items:center; gap:8px;">
+                🔥 Reset device + cloud
+              </div>
+              <div class="text-sm" style="color:var(--text-secondary); line-height:1.5;">
+                Hapus semua: device ini DAN data di cloud. ${escapeHtml(cloudHint)} Setelah ini kamu di-logout dan harus login ulang dari nol.
+              </div>
+            </button>
+          </div>`;
+
+        openModal({
+          title: 'Reset semua data',
+          body,
+          actions: [
+            { label: 'Batal', className: 'btn-ghost', onClick: closeModal },
+          ],
+        });
+
+        // Hover affordance for the two option buttons (slight tint shift +
+        // 1px lift) — same pattern as the migrate-tab affordance.
+        const styleHover = (btn, baseBg, hoverBg) => {
+          if (!btn) return;
+          btn.addEventListener('mouseenter', () => { btn.style.background = hoverBg; btn.style.transform = 'translateY(-1px)'; });
+          btn.addEventListener('mouseleave', () => { btn.style.background = baseBg; btn.style.transform = ''; });
+        };
+        const localBtn = document.getElementById('resetLocalOnlyBtn');
+        const allBtn   = document.getElementById('resetEverythingBtn');
+        styleHover(localBtn, 'rgba(251, 191, 36, 0.08)', 'rgba(251, 191, 36, 0.15)');
+        styleHover(allBtn,   'rgba(220, 38, 38, 0.06)',  'rgba(220, 38, 38, 0.12)');
+
+        // ---- Path 1: Device-only ----
+        if (localBtn) localBtn.addEventListener('click', () => {
+          if (!confirm('Hapus data di device ini saja? Cloud tetap utuh — login ulang akan recover data.')) return;
+          // Clear local data + session. We DO clear the session so an
+          // empty local state doesn't auto-pull cloud back the moment the
+          // user reloads (which would defeat the "fresh start on this
+          // device" intent). LOCAL_USER_KEY stays so push subscription
+          // tracking stays consistent if the user logs back in here.
+          try { localStorage.removeItem(LS_KEY); } catch {}
+          try { localStorage.removeItem(SESSION_KEY); } catch {}
+          closeModal();
+          toast('Device ter-reset. Memuat ulang…', 'warning');
+          setTimeout(() => { location.reload(); }, 600);
+        });
+
+        // ---- Path 2: Local + Cloud ----
+        if (allBtn) allBtn.addEventListener('click', async () => {
+          if (!confirm('Hapus SEMUA data — device ini + cloud + akun? Tidak bisa di-undo.')) return;
+          if (isLoggedIn) {
+            try {
+              // Push empty state with current valid token. Cloud blob is
+              // overwritten with defaults so any subsequent pull from
+              // another device merges against an empty state.
+              await fetch(CONFIG.WORKER_URL + '/api/sync/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ state: defaultState(), deviceLabel: deviceLabel() }),
+              });
+            } catch {
+              // Network failure is acceptable — local wipe still proceeds.
+              // Cloud may remain stale until another device with a clean
+              // state syncs.
+            }
+            try {
+              await fetch(CONFIG.WORKER_URL + '/api/auth/signout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              });
+            } catch {}
           }
-          try {
-            await fetch(CONFIG.WORKER_URL + '/api/auth/signout', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            });
-          } catch {}
-        }
-        // Wipe all client storage, then reload so every in-memory cache
-        // is gone (renderedChatIds, money-fx layer, etc.). Reloading is
-        // simpler + safer than trying to re-init every subsystem in
-        // place after a destructive reset.
-        try { localStorage.removeItem(LS_KEY); } catch {}
-        try { localStorage.removeItem(SESSION_KEY); } catch {}
-        try { localStorage.removeItem(LOCAL_USER_KEY); } catch {}
-        toast('Data ter-reset. Memuat ulang…', 'warning');
-        setTimeout(() => { location.reload(); }, 600);
+          try { localStorage.removeItem(LS_KEY); } catch {}
+          try { localStorage.removeItem(SESSION_KEY); } catch {}
+          try { localStorage.removeItem(LOCAL_USER_KEY); } catch {}
+          closeModal();
+          toast('Data + cloud ter-reset. Memuat ulang…', 'warning');
+          setTimeout(() => { location.reload(); }, 600);
+        });
       });
       // Less destructive than full Reset — keeps accounts, categories,
       // goals, settings intact, only wipes the transaction list. Marks
