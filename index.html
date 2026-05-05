@@ -9907,10 +9907,44 @@ Use the user input carefully, but keep the output minimal and structured. Return
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     }
 
-    function budgetSpent(category) {
-      const mk = currentMonthKey();
+    // Week key = YYYY-MM-DD of this week's MONDAY (local time). Same Monday
+    // for any date in Mon..Sun of the same week, so two transactions in the
+    // same week produce the same key. Use noon when parsing input dates so
+    // DST transitions don't flip the local day.
+    function _startOfWeekISO(d) {
+      const x = new Date(d);
+      const day = x.getDay();        // 0 = Sun, 1 = Mon, ..., 6 = Sat
+      const diff = (day === 0 ? -6 : 1) - day;
+      x.setDate(x.getDate() + diff);
+      x.setHours(0, 0, 0, 0);
+      return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    }
+    function currentWeekKey() { return _startOfWeekISO(new Date()); }
+    function txWeekKey(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00');
+      if (isNaN(d.getTime())) return '';
+      return _startOfWeekISO(d);
+    }
+
+    // Period-aware budget spend. Existing budgets without a `period` field
+    // default to 'monthly' for backward compat; new budgets pick from the
+    // modal dropdown. Filters Expense rows in the matching window:
+    //   daily   → tx.Date === today
+    //   weekly  → tx falls in the same Mon..Sun bucket as today
+    //   monthly → tx is in the current calendar month (legacy behavior)
+    function budgetSpent(category, period = 'monthly') {
+      const today = todayISO();
+      const monthK = currentMonthKey();
+      const weekK = currentWeekKey();
       return state.transactions
-        .filter((t) => t.Type === 'Expense' && t['Transaction Category'] === category && monthKey(t.Date) === mk)
+        .filter((t) => {
+          if (t.Type !== 'Expense' || t['Transaction Category'] !== category) return false;
+          const dateStr = String(t.Date || '').slice(0, 10);
+          if (period === 'daily')  return dateStr === today;
+          if (period === 'weekly') return txWeekKey(dateStr) === weekK;
+          return monthKey(dateStr) === monthK;
+        })
         .reduce((s, t) => s + (t.Value || 0), 0);
     }
 
@@ -9935,10 +9969,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
         host.innerHTML = `<div class="plan-empty">Belum ada budget. Klik <strong>+ Add Budget</strong> untuk mulai.</div>`;
         return;
       }
+      const periodLabelMap = { daily: 'Daily Budget', weekly: 'Weekly Budget', monthly: 'Monthly Budget' };
       host.innerHTML = list.map((b) => {
-        const spent = budgetSpent(b.category);
+        // Period-aware spend. Legacy budgets (no `period`) default to
+        // monthly so existing data keeps showing the same numbers.
+        const period = b.period || 'monthly';
+        const spent = budgetSpent(b.category, period);
         // B-03: support legacy `limit` field (demo seed + older imports).
-        const limit = Number(b.monthlyLimit || b.limit || 0);
+        const limit = Number(b.limit || b.monthlyLimit || 0);
         const pct = limit > 0 ? Math.min(999, Math.round((spent / limit) * 100)) : 0;
         const over = pct > 100;
         const near = pct >= 80 && pct <= 100;
@@ -9949,7 +9987,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <div class="plan-card" data-id="${b.id}">
             <div class="plan-card-head">
               <div>
-                <div class="plan-card-meta">Monthly Budget</div>
+                <div class="plan-card-meta">${periodLabelMap[period] || 'Monthly Budget'}</div>
                 <div class="plan-card-title">${escapeHtml(b.category)}</div>
               </div>
               <div class="plan-card-actions">
@@ -10532,6 +10570,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
     function openBudgetModal(id) {
       const existing = id ? state.budgets.find((x) => x.id === id) : null;
       const catOptions = [...new Set(state.categories.filter((c) => c.type === 'Expense').map((c) => c.category))];
+      const initialPeriod = (existing && existing.period) || 'monthly';
+      const periodLabelMap = { daily: 'harian', weekly: 'mingguan', monthly: 'bulanan' };
       const body = `
         <div class="stack-sm">
           <div>
@@ -10542,8 +10582,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
             </datalist>
           </div>
           <div>
-            <label class="label">Limit bulanan (Rp)</label>
-            <input type="text" inputmode="numeric" pattern="[0-9.]*" class="input rupiah-input" id="bpLimit" value="${existing?.monthlyLimit || existing?.limit || ''}" placeholder="0" />
+            <label class="label">Periode</label>
+            <select class="select" id="bpPeriod">
+              <option value="daily"   ${initialPeriod === 'daily'   ? 'selected' : ''}>Harian — reset tiap hari</option>
+              <option value="weekly"  ${initialPeriod === 'weekly'  ? 'selected' : ''}>Mingguan — reset tiap Senin</option>
+              <option value="monthly" ${initialPeriod === 'monthly' ? 'selected' : ''}>Bulanan — reset tiap awal bulan</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" id="bpLimitLabel">Limit ${periodLabelMap[initialPeriod]} (Rp)</label>
+            <input type="text" inputmode="numeric" pattern="[0-9.]*" class="input rupiah-input" id="bpLimit" value="${existing?.limit || existing?.monthlyLimit || ''}" placeholder="0" />
           </div>
         </div>`;
       openModal({
@@ -10553,10 +10601,19 @@ Use the user input carefully, but keep the output minimal and structured. Return
           { label: 'Batal', className: 'btn-ghost', onClick: closeModal },
           { label: existing ? 'Simpan' : 'Tambah', className: 'btn-primary', onClick: () => {
               const category = document.getElementById('bpCat').value.trim();
-              const monthlyLimit = parseRupiahDigits(document.getElementById('bpLimit').value);
+              const period = document.getElementById('bpPeriod').value || 'monthly';
+              const limitVal = parseRupiahDigits(document.getElementById('bpLimit').value);
               if (!category) { toast('Kategori wajib diisi', 'error'); return; }
-              if (existing) { existing.category = category; existing.monthlyLimit = monthlyLimit; }
-              else { state.budgets.push({ id: uid(), category, monthlyLimit }); }
+              if (existing) {
+                existing.category = category;
+                existing.period = period;
+                existing.limit = limitVal;
+                // Keep monthlyLimit in sync for legacy readers; harmless if
+                // period is daily/weekly because new code prefers `limit`.
+                existing.monthlyLimit = limitVal;
+              } else {
+                state.budgets.push({ id: uid(), category, period, limit: limitVal, monthlyLimit: limitVal });
+              }
               saveState();
               closeModal();
               renderBudgetsGrid();
@@ -10564,6 +10621,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
             } },
         ],
       });
+      // Live label sync: changing the period dropdown updates the limit
+      // input label so users always see "Limit harian/mingguan/bulanan".
+      const periodSel = document.getElementById('bpPeriod');
+      const limitLabel = document.getElementById('bpLimitLabel');
+      if (periodSel && limitLabel) {
+        periodSel.addEventListener('change', () => {
+          const lbl = periodLabelMap[periodSel.value] || 'bulanan';
+          limitLabel.textContent = `Limit ${lbl} (Rp)`;
+        });
+      }
     }
 
     function openGoalModal(id) {
@@ -11500,20 +11567,22 @@ Use the user input carefully, but keep the output minimal and structured. Return
         return;
       }
 
-      // Current-month spend per budget; sort over-limit first (most urgent),
+      // Period-aware spend per budget; sort over-limit first (most urgent),
       // then near-limit, then safe - within each bucket by pct DESC.
       const rows = list.map((b) => {
-        const spent = budgetSpent(b.category);
+        const period = b.period || 'monthly';
+        const spent = budgetSpent(b.category, period);
         // B-03: fall back to legacy `limit` field.
-        const limit = Number(b.monthlyLimit || b.limit || 0);
+        const limit = Number(b.limit || b.monthlyLimit || 0);
         const pct = limit > 0 ? Math.round((spent / limit) * 100) : 0;
-        return { category: b.category, spent, limit, pct, stateKey: budgetStateFor(pct) };
+        return { category: b.category, period, spent, limit, pct, stateKey: budgetStateFor(pct) };
       }).sort((a, b) => {
         const order = { over: 0, near: 1, safe: 2 };
         if (order[a.stateKey] !== order[b.stateKey]) return order[a.stateKey] - order[b.stateKey];
         return b.pct - a.pct;
       });
 
+      const periodChip = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
       const cards = rows.map((r) => {
         const color = BUDGET_STATE_COLORS[r.stateKey];
         const barWidth = Math.min(100, r.pct);
@@ -11525,7 +11594,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <div class="acct-card budget-card budget-${r.stateKey}" style="--acct-color:${color}">
             <div class="acct-top">
               <span class="acct-ico">${SCORECARD_ICONS.budget}</span>
-              <span class="acct-type budget-type">Budget</span>
+              <span class="acct-type budget-type">${periodChip[r.period] || 'Monthly'} Budget</span>
               <span class="goal-pct">${r.pct}%</span>
             </div>
             <div class="acct-name">${escapeHtml(r.category)}</div>
@@ -11541,7 +11610,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       }).join('');
 
       host.innerHTML = `
-        <div class="ds-acct-head">This Month</div>
+        <div class="ds-acct-head">Active Budgets</div>
         <div class="ds-acct-grid">${cards}</div>`;
 
       const mB = document.getElementById('dsBudgetsGroupM');
@@ -14860,13 +14929,21 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (!Notif.enabled()) return;
       const b = (state.budgets || []).find((x) => x.category === category);
       if (!b) return;
-      const limit = Number(b.monthlyLimit || b.limit || 0);
+      const limit = Number(b.limit || b.monthlyLimit || 0);
       if (!limit) return;
       const newPct = Math.round((newSpent / limit) * 100);
       const prevPct = Math.round((prevSpent / limit) * 100);
-      const monthKey = new Date().toISOString().slice(0, 7);
-      const dedupKey = category + ':' + monthKey;
-      // Tier crossings: 80% (warn) and 100% (over). Fire once per tier per month.
+      // Period-aware dedup so a daily budget fires fresh tier alerts each
+      // day, weekly each week, monthly each month. Without this, a daily
+      // budget that crossed 80% Monday would never alert again Tue/Wed
+      // even if the user blew past it again.
+      const period = b.period || 'monthly';
+      const periodKey = period === 'daily'
+        ? new Date().toISOString().slice(0, 10)
+        : period === 'weekly'
+          ? currentWeekKey()
+          : new Date().toISOString().slice(0, 7);
+      const dedupKey = category + ':' + period + ':' + periodKey;
       const fired = _notifFired.budget[dedupKey] = _notifFired.budget[dedupKey] || {};
       if (newPct >= 100 && prevPct < 100 && !fired.over) {
         fired.over = true; Notif.fireBudget(category, newPct, newSpent, limit);
@@ -14927,9 +15004,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
       try {
         if (tx && tx.Type === 'Expense' && tx['Transaction Category']) {
           const cat = tx['Transaction Category'];
-          const newSpent = budgetSpent(cat);
-          const prevSpent = Math.max(0, newSpent - (tx.Value || 0));
-          checkBudgetCrossings(prevSpent, newSpent, cat);
+          // Resolve the budget's period so spend is computed in the right
+          // window (daily / weekly / monthly). Skip if no budget exists
+          // for this category — there's nothing to cross.
+          const b = (state.budgets || []).find((x) => x.category === cat);
+          if (b) {
+            const period = b.period || 'monthly';
+            const newSpent = budgetSpent(cat, period);
+            const prevSpent = Math.max(0, newSpent - (tx.Value || 0));
+            checkBudgetCrossings(prevSpent, newSpent, cat);
+          }
         }
         if (tx && tx.Type === 'Transfer' && tx.toAccount) {
           const goals = (state.initialBalances && state.initialBalances.goals) || [];
@@ -16558,14 +16642,50 @@ Use the user input carefully, but keep the output minimal and structured. Return
       });
       const btnSheetsGuide = document.getElementById('btnSheetsGuide');
       if (btnSheetsGuide) btnSheetsGuide.addEventListener('click', showSheetsGuide);
-      document.getElementById('btnReset').addEventListener('click', () => {
+      document.getElementById('btnReset').addEventListener('click', async () => {
         if (!confirm('Yakin? Semua data akan terhapus permanen.')) return;
-        localStorage.removeItem(LS_KEY);
-        state = defaultState();
-        saveState();
-        navigateTo('dashboard');
-        renderCategories();
-        toast('Data ter-reset', 'warning');
+        // Multi-step reset that also wipes the CLOUD copy so re-login
+        // doesn't resurrect old state via /api/sync/pull. Previously this
+        // only cleared localStorage; debounced sync push then no-op'd
+        // because state.auth was already empty (uid check fails), leaving
+        // the cloud blob untouched. On next login → mergeState restored
+        // everything. Now we push an empty blob FIRST while the session
+        // is still valid, then sign out, then nuke local.
+        const token = getSessionToken();
+        const wasLoggedIn = !!token;
+        if (wasLoggedIn) {
+          try {
+            // Push empty state with current valid token. The server sees
+            // a clean slate; any pull from another device after this
+            // will merge against an empty cloud state (effectively a
+            // no-op for resurrection).
+            await fetch(CONFIG.WORKER_URL + '/api/sync/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ state: defaultState(), deviceLabel: deviceLabel() }),
+            });
+          } catch {
+            // Network failure is fine — we still proceed with local
+            // wipe; cloud will remain stale until next manual sync from
+            // any device with a clean state. The UX hint below mentions
+            // it so the user isn't surprised.
+          }
+          try {
+            await fetch(CONFIG.WORKER_URL + '/api/auth/signout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            });
+          } catch {}
+        }
+        // Wipe all client storage, then reload so every in-memory cache
+        // is gone (renderedChatIds, money-fx layer, etc.). Reloading is
+        // simpler + safer than trying to re-init every subsystem in
+        // place after a destructive reset.
+        try { localStorage.removeItem(LS_KEY); } catch {}
+        try { localStorage.removeItem(SESSION_KEY); } catch {}
+        try { localStorage.removeItem(LOCAL_USER_KEY); } catch {}
+        toast('Data ter-reset. Memuat ulang…', 'warning');
+        setTimeout(() => { location.reload(); }, 600);
       });
       // Less destructive than full Reset — keeps accounts, categories,
       // goals, settings intact, only wipes the transaction list. Marks
