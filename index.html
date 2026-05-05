@@ -6878,14 +6878,24 @@
 
     // Thousand-separator helpers for Rupiah amount inputs. Strips any non-digit
     // so users can only enter numbers, and renders with id-ID dots (55.382.828).
+    // Leading minus sign is preserved so users can enter NEGATIVE balances —
+    // needed for tracking credit-card outstanding bills as accounts (saldo
+    // negatif = utang ke bank kartu kredit). All other non-digit characters
+    // are stripped. Only the FIRST minus counts; "1-2" parses as 12.
     function formatRupiahDigits(v) {
-      const digits = String(v == null ? '' : v).replace(/[^\d]/g, '');
-      if (!digits) return '';
-      return Number(digits).toLocaleString('id-ID');
+      const s = String(v == null ? '' : v);
+      const isNeg = /^\s*-/.test(s);
+      const digits = s.replace(/[^\d]/g, '');
+      if (!digits) return isNeg ? '-' : '';
+      return (isNeg ? '-' : '') + Number(digits).toLocaleString('id-ID');
     }
     function parseRupiahDigits(v) {
-      const digits = String(v == null ? '' : v).replace(/[^\d]/g, '');
-      return digits ? Number(digits) : 0;
+      const s = String(v == null ? '' : v);
+      const isNeg = /^\s*-/.test(s);
+      const digits = s.replace(/[^\d]/g, '');
+      if (!digits) return 0;
+      const n = Number(digits);
+      return isNeg ? -n : n;
     }
     // Wire an input so keystrokes, paste, and IME are all coerced to digits
     // and shown with dot separators. Caret position is preserved by counting
@@ -9735,11 +9745,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <button class="btn btn-secondary btn-sm ib-add" data-group="goals">+ Add Goal</button>
         </div>`;
 
+      // Credit card hint — surfaces the "negative saldo awal" pattern so
+      // users know they can model credit card outstanding bills as a
+      // regular Bank account with a negative opening balance. Avoids the
+      // need for a dedicated Credit Card account type for now.
+      const creditCardHint = `
+        <div class="ib-hint" style="padding:10px 12px; margin-bottom:12px; background: rgba(251, 191, 36, 0.08); border-left: 3px solid #fbbf24; border-radius: 6px; font-size: 12px; line-height: 1.55; color: var(--text-secondary);">
+          💡 <strong>Punya kartu kredit?</strong> Bikin akun baru di Bank dengan nama kartumu (misal "BCA Card"), lalu isi saldo awal <strong>negatif</strong> sebesar tagihan saat ini (misal <code>-2.500.000</code>). Tiap belanja pakai kartu, tag transaksinya ke akun itu — saldo makin minus. Tiap bayar tagihan, transfer dari rekening utama ke akun kartu — saldo naik mendekati 0.
+        </div>`;
       host.innerHTML = `
         <div class="ib-total-row">
           <span class="ib-total-lbl">Total Opening Balance</span>
           <span class="ib-total-val">${formatCompact(total)}</span>
         </div>
+        ${creditCardHint}
         ${cashBlock}
         ${arrBlocks}
         ${goalsBlock}
