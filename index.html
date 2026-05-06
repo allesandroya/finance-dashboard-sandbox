@@ -13430,18 +13430,56 @@ Use the user input carefully, but keep the output minimal and structured. Return
       state.tombstones[id] = Date.now();
     }
 
+    // Idempotent: ensure (type, category, subCategory) trio exists in
+    // state.categories so AI-coined categories show up in the master list
+    // (Sheets → Categories) and downstream pickers (Quick Add, Plans).
+    // Returns the new row when added, null when already existed or the
+    // input was a Transfer (which doesn't use category storage).
+    function ensureCategoryRow(type, category, subCategory) {
+      if (!type || type === 'Transfer') return null;
+      const cat = String(category || '').trim();
+      const sub = String(subCategory || '').trim();
+      if (!cat || !sub) return null;
+      if (!Array.isArray(state.categories)) state.categories = [];
+      const dup = state.categories.some((c) =>
+        c.type === type &&
+        String(c.category).toLowerCase()    === cat.toLowerCase() &&
+        String(c.subCategory).toLowerCase() === sub.toLowerCase()
+      );
+      if (dup) return null;
+      const row = {
+        type,
+        category: cat,
+        subCategory: sub,
+        example: '',
+        iconKey: 'tag',
+        iconColor: '#64748b',
+      };
+      state.categories.push(row);
+      return row;
+    }
+
     function saveTxn(msgId) {
       const msg = state.messages.find((m) => m.id === msgId);
       if (!msg) return;
       const t = { ...msg.txn, ts: Date.now(), id: 'tx-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), _rawInput: msg.text || '' };
       state.transactions.push(t);
       msg.saved = true;
+      // Auto-promote the AI's category/sub trio into the master list if
+      // it isn't already there. Without this, AI-coined names (e.g.
+      // "Hobi Mancing / Beli Pancing") only ever live on the transaction
+      // — Sheets → Categories doesn't show them, Quick Add picker can't
+      // re-use them, and Plans → Budgets can't target them.
+      const addedCat = ensureCategoryRow(t.Type, t['Transaction Category'], t['Sub-Category']);
       // Push a clean, re-usable chip derived from the parsed transaction, not the
       // verbose "Oke ini aku tangkap jadi…" bot reply.
       pushChatSuggestion(buildSuggestionFromTxn(msg.txn));
       saveState();
       renderChat();
-      toast('Transaksi tersimpan ✓', 'success');
+      toast(addedCat
+        ? `Transaksi tersimpan ✓ — kategori "${addedCat.category}" ditambah ke master list`
+        : 'Transaksi tersimpan ✓',
+        'success');
       try { notifyTxnLanded(t); } catch {}
     }
 
@@ -14314,7 +14352,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // New-category scratch - used while step === 'newcat'. iconKey points
       // into ICON_SVG so the saved category will render with the same SVG
       // bubble used on the dashboard.
-      const newCat = { name: '', sub: '', iconKey: 'tag', iconColor: '#64748b' };
+      const newCat = { name: '', sub: '', example: '', iconKey: 'tag', iconColor: '#64748b' };
       let step = 'main'; // 'main' | 'newcat'
 
       const typeClass = () => draft.type === 'Income' ? 'inc' : draft.type === 'Transfer' ? 'trf' : 'exp';
@@ -14522,6 +14560,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
               <input type="text" class="input" id="qaNewCatSub" placeholder="${initialMatch ? 'misal: Kopi Susu' : 'kosongkan untuk pakai nama kategori'}" value="${escapeAttr(newCat.sub)}" />
             </div>
 
+            <div class="qa-field">
+              <div class="label">Contoh Keyword <span style="color:var(--text-muted);font-weight:normal;text-transform:none;letter-spacing:0;">(opsional)</span></div>
+              <input type="text" class="input" id="qaNewCatExample" placeholder="misal: kopi, starbucks, kafe" value="${escapeAttr(newCat.example || '')}" />
+              <div class="hint" style="margin-top:6px;">
+                💡 Keyword bantu AI Chat Bot otomatis kategorikan transaksi yang mengandung kata-kata ini. Pisahkan dengan koma.
+              </div>
+            </div>
+
             <div class="qa-field" id="qaNewCatIconSection" style="${initialMatch ? 'display:none;' : ''}">
               <div class="label">Pilih Icon</div>
               <div class="qa-emoji-wrap" id="qaEmojiWrap">
@@ -14542,8 +14588,9 @@ Use the user input carefully, but keep the output minimal and structured. Return
             const a = document.getElementById('qaAccount'); if (a) draft.account = a.value;
           }
         } else if (step === 'newcat') {
-          const n = document.getElementById('qaNewCatName'); if (n) newCat.name = n.value.trim();
-          const s = document.getElementById('qaNewCatSub');  if (s) newCat.sub  = s.value.trim();
+          const n = document.getElementById('qaNewCatName');    if (n) newCat.name = n.value.trim();
+          const s = document.getElementById('qaNewCatSub');     if (s) newCat.sub  = s.value.trim();
+          const ex = document.getElementById('qaNewCatExample'); if (ex) newCat.example = ex.value.trim();
         }
       }
 
@@ -14760,7 +14807,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
             type: catType,
             category: existing.category,
             subCategory: newCat.sub,
-            example: '',
+            example: newCat.example || '',
           });
           saveState();
           draft.category = existing.category;
@@ -14778,7 +14825,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           type: catType,
           category: newCat.name,
           subCategory: newCat.sub || newCat.name,
-          example: '',
+          example: newCat.example || '',
           iconKey: newCat.iconKey,
           iconColor: newCat.iconColor,
         };
