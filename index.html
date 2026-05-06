@@ -3723,6 +3723,45 @@
     }
     .cat-card-acts button:hover { color: var(--text-primary); }
 
+    /* Type-tinted Expense / Income switcher at the top of Categories
+       page. Type-driven colors (orange for Expense, green for Income)
+       make the active toggle obvious at a glance — generic neutral
+       buttons made it easy for users to miss that this controls which
+       category set they're viewing. */
+    .cat-tab-switch {
+      display: inline-flex;
+      gap: 0;
+      padding: 3px;
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .cat-tab-switch .cat-tab {
+      border: 0;
+      background: transparent;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 140ms ease, color 140ms ease, transform 120ms ease;
+    }
+    .cat-tab-switch .cat-tab:hover:not(.active) {
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+    .cat-tab-switch .cat-tab.active[data-cat-type="Expense"] {
+      background: rgba(242, 154, 90, 0.18);
+      color: #c25c1d;
+      box-shadow: 0 1px 2px rgba(194, 92, 29, 0.12);
+    }
+    .cat-tab-switch .cat-tab.active[data-cat-type="Income"] {
+      background: rgba(47, 122, 95, 0.18);
+      color: #2f7a5f;
+      box-shadow: 0 1px 2px rgba(47, 122, 95, 0.12);
+    }
+
     /* Grouped categories — one card per parent category, each containing
        N nested sub-rows. Cuts vertical scroll dramatically when a
        category has multiple subs (Family with 3 subs used to be 3 big
@@ -3737,10 +3776,29 @@
       margin-bottom: 12px;
     }
     .cat-group-head {
+      width: 100%;
       display: flex; align-items: center; gap: 12px;
       padding: 14px 16px;
       background: var(--bg-elev);
+      border: 0;
+      cursor: pointer;
+      text-align: left;
+      transition: background 140ms ease;
     }
+    .cat-group-head:hover { background: color-mix(in srgb, var(--accent) 4%, var(--bg-elev)); }
+    .cat-group-chevron {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-tertiary);
+      margin-left: 4px;
+      transform: rotate(-90deg);
+      transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .cat-group.is-open .cat-group-chevron { transform: rotate(0deg); }
+    /* Collapsed state hides the sub list. Default = collapsed. */
+    .cat-group .cat-group-subs { display: none; }
+    .cat-group.is-open .cat-group-subs { display: flex; }
     .cat-group-meta { flex: 1; min-width: 0; }
     .cat-group-name {
       font-size: 15px; font-weight: 700; color: var(--text-primary);
@@ -5826,9 +5884,9 @@
           <!-- Sheet: Categories -->
           <div class="sheet-pane hidden" data-pane="categories">
             <div class="txn-toolbar">
-              <div class="row" style="gap: 4px;">
-                <button class="btn btn-secondary btn-sm cat-tab active" data-cat-type="Expense">Expense</button>
-                <button class="btn btn-ghost btn-sm cat-tab" data-cat-type="Income">Income</button>
+              <div class="cat-tab-switch">
+                <button type="button" class="cat-tab active" data-cat-type="Expense">Expense</button>
+                <button type="button" class="cat-tab" data-cat-type="Income">Income</button>
               </div>
               <button class="btn btn-primary btn-sm" id="btnAddCategory" style="margin-left:auto;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -9457,6 +9515,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
     // After commit, bumps _modifiedAt on each touched row so cloud sync
     // treats them as fresh edits.
     let _migrateMode = 'all';
+    // Categories grouped-card UI: which parent categories are currently
+    // expanded (set of lowercase category names). Default empty = all
+    // bundled, so users can scan the full list of categories in one
+    // screen and only drill into the one they care about. State is
+    // in-memory only — resetting on refresh is fine, the bundle is
+    // about reading economy not persistence.
+    let _catExpanded = new Set();
     // Generalized migrate modal. `sourceAccount` is the account whose
     // transactions we're moving FROM. Special values:
     //   - 'Cash' → matches both account === 'Cash' and untagged (because
@@ -13714,10 +13779,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
     function renderCategories() {
       const body = document.getElementById('catTableBody');
       const type = state.catTab || 'Expense';
+      // Active state drives the type-colored background via the
+      // .cat-tab-switch CSS rules — no need to swap btn-secondary /
+      // btn-ghost classes anymore.
       document.querySelectorAll('.cat-tab').forEach((b) => {
         b.classList.toggle('active', b.dataset.catType === type);
-        b.classList.toggle('btn-secondary', b.dataset.catType === type);
-        b.classList.toggle('btn-ghost', b.dataset.catType !== type);
       });
       const cats = state.categories
         .map((c, idx) => ({ ...c, _idx: idx }))
@@ -13782,16 +13848,24 @@ Use the user input carefully, but keep the output minimal and structured. Return
           groups.get(key).subs.push(c);
         }
         const chipCls = type === 'Income' ? 'inc' : 'exp';
-        cardsHost.innerHTML = Array.from(groups.values()).map((g) => `
-          <div class="cat-group" data-cat-group="${escapeAttr(g.displayName)}">
-            <div class="cat-group-head">
+        const chevronSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+        cardsHost.innerHTML = Array.from(groups.values()).map((g) => {
+          const expanded = _catExpanded.has(String(g.displayName).toLowerCase());
+          const cls = expanded ? 'cat-group is-open' : 'cat-group';
+          // Group head is the click target for collapse/expand; sub-row
+          // edit/delete + the + Tambah CTA stop propagation so they
+          // don't accidentally toggle the section.
+          return `
+          <div class="${cls}" data-cat-group="${escapeAttr(g.displayName)}">
+            <button type="button" class="cat-group-head" data-cat-toggle="${escapeAttr(g.displayName)}">
               <span class="cat-icon" style="--cat-tint:${g.iconColor}; width:36px; height:36px; border-radius:10px; flex-shrink:0;">${g.iconSvg}</span>
               <div class="cat-group-meta">
                 <div class="cat-group-name">${escapeHtml(g.displayName)}</div>
                 <div class="cat-group-subcount">${g.subs.length} sub-kategori</div>
               </div>
               <span class="cat-card-chip ${chipCls}" style="margin-left:auto;">${g.type}</span>
-            </div>
+              <span class="cat-group-chevron" aria-hidden="true">${chevronSvg}</span>
+            </button>
             <div class="cat-group-subs">
               ${g.subs.map((c) => `
                 <div class="cat-sub-row" data-cat-idx="${c._idx}">
@@ -13806,7 +13880,8 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 </div>`).join('')}
               <button class="cat-sub-add" data-cat-add-sub="${escapeAttr(g.displayName)}" type="button">＋ Tambah sub-kategori</button>
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       }
       updateMobileFab();
     }
@@ -15127,6 +15202,118 @@ Use the user input carefully, but keep the output minimal and structured. Return
       updateFooter();
     }
 
+    // Dedicated modal for adding a sub-category UNDER a fixed parent.
+    // Mirrors the openCategoryModal layout (icon preview + sub input +
+    // keyword + optional icon override) but locks the parent category
+    // and pre-selects its icon, so the user only fills in the sub name.
+    // Uses the same toast + ensureCategoryRow-style sibling-icon
+    // inheritance as the QuickAdd add-sub flow.
+    function openAddSubCategoryModal(parentName, type) {
+      if (!parentName) return;
+      // Find a sibling row to inherit icon from. The parent is matched
+      // case-insensitively so "donation / charity" still finds rows
+      // saved as "Donation / Charity".
+      const sibling = state.categories.find((c) =>
+        c.type === type &&
+        String(c.category).toLowerCase() === String(parentName).toLowerCase() &&
+        c.iconKey
+      );
+      const startKey = (sibling && sibling.iconKey) || 'tag';
+      const startColor = (sibling && sibling.iconColor) || '#64748b';
+      const canonicalParent = sibling ? sibling.category : parentName;
+      const iconTiles = QA_ICON_OPTIONS.map((opt) => `
+        <button type="button"
+                class="qa-icon-tile ${startKey === opt.key ? 'active' : ''}"
+                data-qa-iconkey="${escapeAttr(opt.key)}"
+                data-qa-iconcolor="${escapeAttr(opt.color)}"
+                title="${escapeAttr(opt.label)}">
+          <span class="cat-icon" style="--cat-tint: ${opt.color};">${ICON_SVG[opt.key]}</span>
+        </button>`).join('');
+      const body = `
+        <div class="stack-sm">
+          <div>
+            <label class="label">Kategori</label>
+            <div style="display:flex; gap:10px; align-items:center; padding:10px 12px; background:var(--bg-elev); border:1px solid var(--border); border-radius:10px;">
+              <span class="cat-icon" id="addSubIconPreview" style="--cat-tint:${startColor};">${ICON_SVG[startKey] || ICON_SVG.tag}</span>
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:600; color:var(--text-primary);">${escapeHtml(canonicalParent)}</div>
+                <div class="hint" style="margin-top:2px;">Type: ${escapeHtml(type)} · sudah terpilih</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label class="label">Nama Sub-Kategori</label>
+            <input type="text" class="input" id="addSubName" placeholder="misal: Kopi Susu" autofocus />
+          </div>
+          <div>
+            <label class="label">Contoh Keyword <span style="color:var(--text-muted);font-weight:normal;text-transform:none;letter-spacing:0;">(opsional)</span></label>
+            <input type="text" class="input" id="addSubExample" placeholder="misal: kopi susu, kopsus" />
+            <div class="hint">Keyword dipakai AI Chat Bot untuk bantu kategorisasi otomatis. Pisahkan dengan koma.</div>
+          </div>
+          <div>
+            <label class="label">Icon <span style="color:var(--text-muted);font-weight:normal;text-transform:none;letter-spacing:0;">(default ikuti kategori)</span></label>
+            <div class="qa-emoji-wrap">
+              <div class="qa-icon-grid" id="addSubIconGrid">${iconTiles}</div>
+            </div>
+          </div>
+        </div>`;
+      let pickedKey = startKey;
+      let pickedColor = startColor;
+      openModal({
+        title: 'Tambah Sub-Kategori',
+        body,
+        actions: [
+          { label: 'Batal', className: 'btn-ghost', onClick: closeModal },
+          {
+            label: 'Simpan', className: 'btn-primary', onClick: () => {
+              const subName = String(document.getElementById('addSubName').value || '').trim();
+              const example = String(document.getElementById('addSubExample').value || '').trim();
+              if (!subName) { toast('Nama sub-kategori wajib.', 'error'); return; }
+              const dup = state.categories.some((c) =>
+                c.type === type &&
+                String(c.category).toLowerCase() === String(canonicalParent).toLowerCase() &&
+                String(c.subCategory || '').toLowerCase() === subName.toLowerCase()
+              );
+              if (dup) {
+                toast(`"${subName}" sudah ada di "${canonicalParent}".`, 'info');
+                return;
+              }
+              state.categories.push({
+                type,
+                category: canonicalParent,
+                subCategory: subName,
+                example,
+                iconKey: pickedKey,
+                iconColor: pickedColor,
+              });
+              saveState();
+              renderCategories();
+              // Auto-expand the parent group so the user sees their new
+              // sub appear without an extra tap.
+              try { _catExpanded.add(String(canonicalParent).toLowerCase()); } catch {}
+              closeModal();
+              toast(`Sub "${subName}" ditambah ke "${canonicalParent}" ✓`);
+            }
+          },
+        ],
+      });
+      // Wire icon picker click + live preview, same pattern as
+      // openCategoryModal.
+      const grid = document.getElementById('addSubIconGrid');
+      const preview = document.getElementById('addSubIconPreview');
+      if (grid) grid.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-qa-iconkey]');
+        if (!btn) return;
+        pickedKey = btn.dataset.qaIconkey;
+        pickedColor = btn.dataset.qaIconcolor || '#64748b';
+        grid.querySelectorAll('.qa-icon-tile').forEach((t) => t.classList.toggle('active', t === btn));
+        if (preview) {
+          preview.innerHTML = ICON_SVG[pickedKey] || ICON_SVG.tag;
+          preview.style.setProperty('--cat-tint', pickedColor);
+        }
+      });
+    }
+
     function openCategoryModal(existing, onSave) {
       const isEdit = !!existing;
       const c = existing || { type: state.catTab || 'Expense', category: '', subCategory: '', example: '' };
@@ -15171,7 +15358,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <div>
             <label class="label">Contoh Keyword (opsional)</label>
             <input type="text" class="input" id="cEx" placeholder="kopi, starbucks" value="${escapeAttr(c.example)}" />
-            <div class="hint">Dipakai bot untuk bantu kategorisasi otomatis. Pisahkan dengan koma.</div>
+            <div class="hint">Keyword dipakai AI Chat Bot untuk bantu kategorisasi otomatis. Pisahkan dengan koma.</div>
           </div>
         </div>`;
       // Mutable picker state. Closes over the `picker` object captured at
@@ -17167,45 +17354,32 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Single click handler delegated across both the desktop table body
       // and the mobile card list so edit/delete buttons work in both views.
       const catClickHandler = (e) => {
-        // "+ Tambah sub-kategori" CTA at the bottom of each grouped card.
-        // Reuses the same prompt-based add-sub flow as Quick-Add's
-        // sub-strip "+ Baru" so behavior + dedupe rules stay consistent.
+        // Group expand/collapse. Tap the header bar to toggle the
+        // sub-list visibility. Default-collapsed (set is empty), so
+        // taps add the parent name to the expanded set.
+        const toggle = e.target.closest('[data-cat-toggle]');
+        if (toggle) {
+          const key = String(toggle.dataset.catToggle || '').toLowerCase();
+          if (!key) return;
+          if (_catExpanded.has(key)) _catExpanded.delete(key);
+          else _catExpanded.add(key);
+          // Animate by toggling the .is-open class on the group only —
+          // avoids a full re-render so chevron + subs slide smoothly.
+          const group = toggle.closest('.cat-group');
+          if (group) group.classList.toggle('is-open');
+          return;
+        }
+        // "+ Tambah sub-kategori" CTA at the bottom of each grouped
+        // card. Opens the dedicated add-sub modal which mirrors the
+        // new-category UI but with the parent + icon pre-filled, so the
+        // user only has to type the sub name (and optionally tweak the
+        // keyword / icon).
         const addSub = e.target.closest('[data-cat-add-sub]');
         if (addSub) {
           const parentName = addSub.dataset.catAddSub;
           const type = state.catTab || 'Expense';
           if (!parentName) return;
-          const raw = window.prompt(`Tambah sub-kategori baru untuk "${parentName}":`, '');
-          if (raw == null) return;
-          const trimmed = String(raw).trim();
-          if (!trimmed) return;
-          const dup = state.categories.some((c) =>
-            c.type === type &&
-            String(c.category).toLowerCase() === parentName.toLowerCase() &&
-            String(c.subCategory || '').toLowerCase() === trimmed.toLowerCase()
-          );
-          if (dup) {
-            toast(`"${trimmed}" sudah ada di "${parentName}".`, 'info');
-            return;
-          }
-          // Inherit icon from a sibling so the new sub gets the parent's
-          // visual treatment immediately (same logic as ensureCategoryRow).
-          const sibling = state.categories.find((c) =>
-            c.type === type &&
-            String(c.category).toLowerCase() === parentName.toLowerCase() &&
-            c.iconKey
-          );
-          state.categories.push({
-            type,
-            category: sibling ? sibling.category : parentName,
-            subCategory: trimmed,
-            example: '',
-            iconKey:   sibling ? sibling.iconKey   : 'tag',
-            iconColor: sibling ? sibling.iconColor : '#64748b',
-          });
-          saveState();
-          renderCategories();
-          toast(`Sub "${trimmed}" ditambah ke "${parentName}" ✓`);
+          openAddSubCategoryModal(parentName, type);
           return;
         }
         const ed = e.target.closest('[data-cat-edit]');
