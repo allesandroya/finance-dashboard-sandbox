@@ -3142,6 +3142,21 @@
       margin-bottom: 18px;
       overflow-x: auto;
     }
+    /* Standalone Categories route: hide the Sheets header chrome (page
+       title + descriptor + tab strip) so it reads like a dedicated
+       Categories page even though it shares view-sheets underneath.
+       Other Sheets sub-tabs (Transactions, Dictionary) keep the chrome. */
+    .view-categories-standalone .section-title,
+    .view-categories-standalone .section-desc,
+    .view-categories-standalone #sheetTabs {
+      display: none;
+    }
+    /* Force grouped-card layout on the standalone Categories route at
+       all viewport widths (the dense flat table is desktop-only on
+       Sheets → Categories tab, but standalone mode is meant to be a
+       cleaner management hub for everyone). */
+    .view-categories-standalone .table-wrap.cat-table-wrap { display: none; }
+    .view-categories-standalone .cat-cards { display: flex; }
 
     .sheet-tab {
       display: inline-flex;
@@ -3707,6 +3722,76 @@
       border-radius: 8px; cursor: pointer; font-size: 13px;
     }
     .cat-card-acts button:hover { color: var(--text-primary); }
+
+    /* Grouped categories — one card per parent category, each containing
+       N nested sub-rows. Cuts vertical scroll dramatically when a
+       category has multiple subs (Family with 3 subs used to be 3 big
+       cards; now it's one card with 3 inline rows). Style mirrors the
+       Goals + Initial Balance grouping pattern so the visual language
+       across "Plans" / "Categories" pages stays consistent. */
+    .cat-group {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .cat-group-head {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px;
+      background: var(--bg-elev);
+    }
+    .cat-group-meta { flex: 1; min-width: 0; }
+    .cat-group-name {
+      font-size: 15px; font-weight: 700; color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .cat-group-subcount {
+      font-size: 11.5px; color: var(--text-tertiary); margin-top: 2px;
+    }
+    .cat-group-subs {
+      display: flex; flex-direction: column;
+      padding: 4px 0;
+    }
+    .cat-sub-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .cat-sub-row:first-child { border-top: 0; }
+    .cat-sub-body { flex: 1; min-width: 0; }
+    .cat-sub-name {
+      font-size: 13px; font-weight: 600; color: var(--text-primary);
+    }
+    .cat-sub-ex {
+      font-size: 11.5px; color: var(--text-tertiary);
+      margin-top: 3px; line-height: 1.4;
+    }
+    .cat-sub-ex-empty { font-style: italic; opacity: 0.7; }
+    .cat-sub-acts { display: flex; gap: 4px; flex-shrink: 0; }
+    .cat-sub-acts button {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-tertiary); width: 30px; height: 30px;
+      border-radius: 7px; cursor: pointer; font-size: 12px;
+      transition: color .12s, border-color .12s;
+    }
+    .cat-sub-acts button:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+    .cat-sub-add {
+      align-self: flex-start;
+      margin: 6px 12px 10px;
+      padding: 7px 12px;
+      background: transparent;
+      border: 1px dashed var(--border);
+      color: var(--accent);
+      border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+    }
+    .cat-sub-add:hover {
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      border-color: var(--accent);
+    }
 
     /* ============== TOAST ============== */
     .toasts {
@@ -7970,6 +8055,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
         renderChat();
       }
       if (view === 'sheets') renderSheets();
+      // Standalone Categories chrome: hide the Sheets-tabs row + "Sheets"
+      // title/desc when the user navigated via the Categories route, so
+      // the page reads as a dedicated Categories page instead of a Sheets
+      // sub-tab. Restore them when navigating to Sheets / Transactions /
+      // Dictionary so the original tabbed UX is intact.
+      try {
+        const sheetsSection = document.getElementById('view-sheets');
+        if (sheetsSection) {
+          const isCategoriesRoute = navKey === 'categories';
+          sheetsSection.classList.toggle('view-categories-standalone', isCategoriesRoute);
+        }
+      } catch {}
       if (view === 'admin') {
         // Show loading state instantly, then fetch + re-render once data lands.
         renderAdmin();
@@ -13627,8 +13724,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
         .filter((c) => c.type === type);
       if (!cats.length) {
         body.innerHTML = `<tr><td colspan="7">${emptyState('Belum ada kategori.', 'Klik "Add Row" untuk tambah.')}</td></tr>`;
+        const cardsHostEmpty = document.getElementById('catCardsBody');
+        if (cardsHostEmpty) cardsHostEmpty.innerHTML = '';
+        updateMobileFab();
         return;
       }
+      // Legacy table rendering (kept for desktop power-users / inline
+      // edit familiarity). Each row stays addressable by index for the
+      // inline-edit + delete handlers.
       body.innerHTML = cats.map((c, i) => {
         const ic = deriveCategoryIconKey(c);
         const iconSvg = ICON_SVG[ic.key] || ICON_SVG.tag;
@@ -13651,30 +13754,60 @@ Use the user input carefully, but keep the output minimal and structured. Return
         </tr>`;
       }).join('');
 
-      // Mobile card list (mirrors the table; CSS swaps which one is visible).
+      // Grouped card layout: collapse to one parent card per category
+      // name, with nested rows for each sub-category. Cuts vertical
+      // scroll dramatically when a category has many subs (Family with
+      // 3 subs used to be 3 separate big cards; now it's one card with
+      // 3 inline rows). Keys data-cat-idx on the per-sub edit/delete
+      // buttons so the existing handlers (which look up by index) keep
+      // working without modification.
       const cardsHost = document.getElementById('catCardsBody');
       if (cardsHost) {
-        cardsHost.innerHTML = cats.map((c) => {
-          const chipCls = c.type === 'Income' ? 'inc' : 'exp';
-          const ic = deriveCategoryIconKey(c);
-          const iconSvg = ICON_SVG[ic.key] || ICON_SVG.tag;
-          return `
-            <div class="cat-card" data-cat-idx="${c._idx}">
-              <span class="cat-icon" style="--cat-tint:${ic.color}; width:36px; height:36px; border-radius:10px; flex-shrink:0;">${iconSvg}</span>
-              <span class="cat-card-chip ${chipCls}">${c.type}</span>
-              <div class="cat-card-body">
-                <div class="cat-card-cat">${escapeHtml(c.category)}</div>
-                <div class="cat-card-sub">${escapeHtml(c.subCategory || '-')}</div>
-                ${c.example ? `<div class="cat-card-ex">e.g. ${escapeHtml(c.example)}</div>` : ''}
+        // Group rows by case-insensitive parent-category name. Use the
+        // first row's icon + canonical capitalization for the group.
+        const groups = new Map();
+        for (const c of cats) {
+          const key = String(c.category || '').toLowerCase();
+          if (!groups.has(key)) {
+            const ic = deriveCategoryIconKey(c);
+            groups.set(key, {
+              displayName: c.category,
+              iconKey: ic.key,
+              iconColor: ic.color,
+              iconSvg: ICON_SVG[ic.key] || ICON_SVG.tag,
+              type: c.type,
+              subs: [],
+            });
+          }
+          groups.get(key).subs.push(c);
+        }
+        const chipCls = type === 'Income' ? 'inc' : 'exp';
+        cardsHost.innerHTML = Array.from(groups.values()).map((g) => `
+          <div class="cat-group" data-cat-group="${escapeAttr(g.displayName)}">
+            <div class="cat-group-head">
+              <span class="cat-icon" style="--cat-tint:${g.iconColor}; width:36px; height:36px; border-radius:10px; flex-shrink:0;">${g.iconSvg}</span>
+              <div class="cat-group-meta">
+                <div class="cat-group-name">${escapeHtml(g.displayName)}</div>
+                <div class="cat-group-subcount">${g.subs.length} sub-kategori</div>
               </div>
-              <div class="cat-card-acts">
-                <button data-cat-edit="${c._idx}" aria-label="Edit">✎</button>
-                <button data-cat-delete="${c._idx}" aria-label="Delete">🗑</button>
-              </div>
-            </div>`;
-        }).join('');
+              <span class="cat-card-chip ${chipCls}" style="margin-left:auto;">${g.type}</span>
+            </div>
+            <div class="cat-group-subs">
+              ${g.subs.map((c) => `
+                <div class="cat-sub-row" data-cat-idx="${c._idx}">
+                  <div class="cat-sub-body">
+                    <div class="cat-sub-name">${escapeHtml(c.subCategory || '-')}</div>
+                    ${c.example ? `<div class="cat-sub-ex">${escapeHtml(c.example)}</div>` : `<div class="cat-sub-ex cat-sub-ex-empty">tidak ada keyword — tap edit untuk tambahkan</div>`}
+                  </div>
+                  <div class="cat-sub-acts">
+                    <button data-cat-edit="${c._idx}" aria-label="Edit">✎</button>
+                    <button data-cat-delete="${c._idx}" aria-label="Delete">🗑</button>
+                  </div>
+                </div>`).join('')}
+              <button class="cat-sub-add" data-cat-add-sub="${escapeAttr(g.displayName)}" type="button">＋ Tambah sub-kategori</button>
+            </div>
+          </div>`).join('');
       }
-      // Refresh FAB visibility / target after a render.
       updateMobileFab();
     }
 
@@ -16727,14 +16860,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // anchor is bottom (latest message) — scroll-to-top would
       // disorient a user mid-conversation.
       const _scrollViewToTop = () => {
-        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { window.scrollTo(0, 0); }
-        // Also scroll the active <section.view> in case it has its own
-        // scroll context (some sub-views do).
+        // Instant scroll on purpose — smooth-scroll fought the mobile
+        // nav's scroll-hide animation, leading to stuck/unresponsive
+        // nav buttons after a re-tap. Instant resolves it before any
+        // subsequent click can race.
+        window.scrollTo(0, 0);
         const activeView = document.querySelector('.view.active');
-        if (activeView) {
-          try { activeView.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
-          activeView.scrollTop = 0;
-        }
+        if (activeView) activeView.scrollTop = 0;
       };
       const _handleNavClick = (target) => {
         // Compare against the public nav key (set by navigateTo) so
@@ -17035,6 +17167,47 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Single click handler delegated across both the desktop table body
       // and the mobile card list so edit/delete buttons work in both views.
       const catClickHandler = (e) => {
+        // "+ Tambah sub-kategori" CTA at the bottom of each grouped card.
+        // Reuses the same prompt-based add-sub flow as Quick-Add's
+        // sub-strip "+ Baru" so behavior + dedupe rules stay consistent.
+        const addSub = e.target.closest('[data-cat-add-sub]');
+        if (addSub) {
+          const parentName = addSub.dataset.catAddSub;
+          const type = state.catTab || 'Expense';
+          if (!parentName) return;
+          const raw = window.prompt(`Tambah sub-kategori baru untuk "${parentName}":`, '');
+          if (raw == null) return;
+          const trimmed = String(raw).trim();
+          if (!trimmed) return;
+          const dup = state.categories.some((c) =>
+            c.type === type &&
+            String(c.category).toLowerCase() === parentName.toLowerCase() &&
+            String(c.subCategory || '').toLowerCase() === trimmed.toLowerCase()
+          );
+          if (dup) {
+            toast(`"${trimmed}" sudah ada di "${parentName}".`, 'info');
+            return;
+          }
+          // Inherit icon from a sibling so the new sub gets the parent's
+          // visual treatment immediately (same logic as ensureCategoryRow).
+          const sibling = state.categories.find((c) =>
+            c.type === type &&
+            String(c.category).toLowerCase() === parentName.toLowerCase() &&
+            c.iconKey
+          );
+          state.categories.push({
+            type,
+            category: sibling ? sibling.category : parentName,
+            subCategory: trimmed,
+            example: '',
+            iconKey:   sibling ? sibling.iconKey   : 'tag',
+            iconColor: sibling ? sibling.iconColor : '#64748b',
+          });
+          saveState();
+          renderCategories();
+          toast(`Sub "${trimmed}" ditambah ke "${parentName}" ✓`);
+          return;
+        }
         const ed = e.target.closest('[data-cat-edit]');
         if (ed) {
           const idx = parseInt(ed.dataset.catEdit, 10);
@@ -18884,14 +19057,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
           },
           {
             id: 'categories',
-            // Categories has its own desktop sidebar entry but no
-            // dedicated mobile bottom-nav button (Settings card and the
-            // QuickAdd inline link cover mobile discovery). Tour falls
-            // back to the desktop selector if mobile target isn't found.
-            targetMobile: '[data-view="categories"]',
+            // Desktop has a dedicated sidebar entry; mobile bottom-nav
+            // doesn't (no room without crowding 5→6). On mobile we
+            // intentionally render this step as a centered card with
+            // no spotlight — pointing to the hidden desktop sidebar
+            // element ended up spotlighting random off-screen geometry
+            // because the sidebar is transform-hidden, not display:none.
+            targetMobile: null,
             targetDesktop: '[data-view="categories"]',
             title: 'Categories',
-            body: 'Atur kategori + sub-kategori transaksi kamu di sini. Tambah keyword bantu AI kategorikan otomatis. Rename kategori = transaksi lama otomatis ikut update.',
+            body: 'Atur kategori + sub-kategori transaksi kamu di sini. Tambah keyword bantu AI kategorikan otomatis. Rename kategori = transaksi lama otomatis ikut update. Akses dari sidebar atau lewat link "Atur kategori" di Quick-Add modal.',
           },
           {
             id: 'plans',
