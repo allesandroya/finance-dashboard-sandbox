@@ -5111,6 +5111,8 @@
         <div class="brand-sub">Smart Money Manager</div>
       </div>
 
+      <!-- TRACKER: read-side flows (data display + entry surfaces).
+           Dashboard / Detail / Chat Bot all live here. -->
       <div class="nav-group-label">Tracker</div>
       <nav class="nav">
         <button class="nav-item active" data-view="dashboard">
@@ -5128,21 +5130,32 @@
           </span>
           Chat Bot
         </button>
-        <button class="nav-item" data-view="sheets">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-          Sheets
+      </nav>
+
+      <!-- SETUP: configuration hubs that shape how Tracker behaves.
+           Plans (budgets/goals/recurring) + Categories (taxonomy + AI
+           keyword hints) belong here. -->
+      <div class="nav-group-label">Setup</div>
+      <nav class="nav">
+        <button class="nav-item" data-view="plans">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Plans
         </button>
-        <!-- Categories: dedicated nav slot. Internally still navigates
-             to view-sheets with sheetTab=categories, but the title and
-             active-pill reflect "Categories" so the feature is no longer
-             buried in a Sheets tab. -->
         <button class="nav-item" data-view="categories">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
           Categories
         </button>
-        <button class="nav-item" data-view="plans">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Plans
+      </nav>
+
+      <!-- SPREADSHEETS: dense raw-data view. Sheets used to host both
+           Transactions and Categories tabs; the latter moved to its
+           own Setup entry, so Sheets is now Transactions-only (plus
+           the admin-only Dictionary tab). -->
+      <div class="nav-group-label">Spreadsheets</div>
+      <nav class="nav">
+        <button class="nav-item" data-view="sheets">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+          Sheets
         </button>
       </nav>
 
@@ -5827,11 +5840,10 @@
               Transactions
               <span class="sheet-tab-count" id="countTxn">0</span>
             </button>
-            <button class="sheet-tab" data-sheet="categories">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/></svg>
-              Categories
-              <span class="sheet-tab-count" id="countCat">0</span>
-            </button>
+            <!-- Categories tab moved to its own Setup nav slot. Standalone
+                 view is the single source of truth; legacy renderCategories
+                 still keeps the table layout alive for any deep link that
+                 lands on sheetTab=categories. -->
             <button class="sheet-tab" data-sheet="dictionary" id="sheetTabDictionary">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               Dictionary <span class="badge-admin" title="Admin only">👑</span>
@@ -19627,23 +19639,37 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // Pick a selector that's actually visible right now. Mobile-only nodes
       // (`[data-mnav]`) are display:none on desktop and vice-versa, so we test
       // both and prefer whichever has a non-zero box.
+      //
+      // Semantics for null vs undefined targetMobile / targetDesktop:
+      //   - undefined / missing → fall back to the other platform's selector
+      //   - explicit null       → "no spotlight on this platform"
+      //                           (skip the cross-platform fallback)
+      // This lets a step like Categories say "centered card on mobile,
+      // sidebar pointer on desktop" without the engine accidentally
+      // spotlighting the off-screen sidebar element on mobile.
       const candidates = [];
       if (step.target) candidates.push(step.target);
-      // Width-based fallback for environments where computed style hasn't
-      // settled yet - mobile breakpoint is 760px in this app.
       const isMobile = window.innerWidth <= 760;
       if (isMobile) {
         if (step.targetMobile) candidates.push(step.targetMobile);
-        if (step.targetDesktop) candidates.push(step.targetDesktop);
+        else if (step.targetMobile === undefined && step.targetDesktop) candidates.push(step.targetDesktop);
       } else {
         if (step.targetDesktop) candidates.push(step.targetDesktop);
-        if (step.targetMobile) candidates.push(step.targetMobile);
+        else if (step.targetDesktop === undefined && step.targetMobile) candidates.push(step.targetMobile);
       }
       for (const sel of candidates) {
         const el = document.querySelector(sel);
         if (!el) continue;
         const rect = el.getBoundingClientRect();
-        if (rect.width > 4 && rect.height > 4) return el;
+        if (rect.width <= 4 || rect.height <= 4) continue;
+        // Reject elements that are sitting off-screen horizontally —
+        // transform-hidden sidebar nodes have non-zero size but live at
+        // negative x. Vertical out-of-view is fine (scrollIntoView
+        // brings them in). Without this, the desktop sidebar's
+        // [data-view="categories"] entry was matching on mobile even
+        // when the sidebar was slid off the left edge.
+        if (rect.right <= 4 || rect.left >= window.innerWidth - 4) continue;
+        return el;
       }
       return null;
     }
