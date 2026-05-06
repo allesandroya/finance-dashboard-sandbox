@@ -4989,6 +4989,14 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
           Sheets
         </button>
+        <!-- Categories: dedicated nav slot. Internally still navigates
+             to view-sheets with sheetTab=categories, but the title and
+             active-pill reflect "Categories" so the feature is no longer
+             buried in a Sheets tab. -->
+        <button class="nav-item" data-view="categories">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          Categories
+        </button>
         <button class="nav-item" data-view="plans">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           Plans
@@ -7918,19 +7926,37 @@ Use the user input carefully, but keep the output minimal and structured. Return
     }
 
     // ============ VIEW ROUTER ============
+    // Tracks the public-facing nav key (e.g. 'categories') even when the
+    // route internally redirects to a different DOM section ('sheets').
+    // _handleNavClick uses this for the "tap-active-nav-again ⇒ scroll
+    // to top" behavior to work regardless of redirect.
+    let _activeNavKey = 'dashboard';
     function navigateTo(view) {
+      // Preserve the original alias before the sheets-redirect rewrite —
+      // we still want the active nav-pill and title to read "Categories"
+      // / "Transactions" even though the actual <section> is view-sheets
+      // underneath. This makes the standalone "Categories" entry point
+      // feel like a first-class destination.
+      const navKey = view;
+      _activeNavKey = navKey;
       // Legacy nav names still route to sheets tab
       if (view === 'transactions') { state.sheetTab = 'transactions'; view = 'sheets'; }
       if (view === 'categories') { state.sheetTab = 'categories'; view = 'sheets'; }
       if (view === 'dictionary') { state.sheetTab = 'dictionary'; view = 'sheets'; }
 
-      document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
-      // Keep the mobile bottom nav's active chip in sync
-      document.querySelectorAll('.mobile-nav-item').forEach((n) => n.classList.toggle('active', n.dataset.mnav === view));
+      // Active pill goes on the original nav key so e.g. "Categories"
+      // stays highlighted in the sidebar even though we mounted the
+      // view-sheets section.
+      document.querySelectorAll('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === navKey));
+      document.querySelectorAll('.mobile-nav-item').forEach((n) => n.classList.toggle('active', n.dataset.mnav === navKey));
       document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
-      const titleMap = { dashboard: 'Dashboard', detail: 'Detail', chat: 'Chat Bot', sheets: 'Sheets', plans: 'Plans', admin: 'User Analytics', deploy: 'Deploy', settings: 'Settings' };
+      const titleMap = {
+        dashboard: 'Dashboard', detail: 'Detail', chat: 'Chat Bot',
+        sheets: 'Sheets', categories: 'Categories', transactions: 'Transactions', dictionary: 'Dictionary',
+        plans: 'Plans', admin: 'User Analytics', deploy: 'Deploy', settings: 'Settings',
+      };
       const titleTextEl = document.getElementById('topbarTitleText');
-      if (titleTextEl) titleTextEl.textContent = titleMap[view] || view;
+      if (titleTextEl) titleTextEl.textContent = titleMap[navKey] || titleMap[view] || view;
       if (view === 'dashboard') renderDashboard();
       if (view === 'detail') renderDetail();
       if (view === 'chat') {
@@ -13447,13 +13473,25 @@ Use the user input carefully, but keep the output minimal and structured. Return
         String(c.subCategory).toLowerCase() === sub.toLowerCase()
       );
       if (dup) return null;
+      // Look for a sibling row with the same parent category — if found,
+      // inherit its iconKey / iconColor and the canonical capitalization
+      // of the category name. Without this, AI-coined subs under an
+      // existing category got the neutral grey "tag" icon while their
+      // siblings had the proper themed icon (e.g. "Donation / Charity"
+      // showed the heart icon for "Zakat / Sedekah" but a generic tag
+      // for "Charity"). Same parent → same icon, always.
+      const sibling = state.categories.find((c) =>
+        c.type === type &&
+        String(c.category).toLowerCase() === cat.toLowerCase() &&
+        c.iconKey
+      );
       const row = {
         type,
-        category: cat,
+        category: sibling ? sibling.category : cat,
         subCategory: sub,
         example: '',
-        iconKey: 'tag',
-        iconColor: '#64748b',
+        iconKey:   sibling ? sibling.iconKey   : 'tag',
+        iconColor: sibling ? sibling.iconColor : '#64748b',
       };
       state.categories.push(row);
       return row;
@@ -14477,7 +14515,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
             </div>
 
             <div>
-              <div class="qa-section-label">Kategori</div>
+              <div class="qa-section-label" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <span>Kategori</span>
+                <!-- Inline shortcut to the standalone Categories page so
+                     users discover the management hub from the moment of
+                     need (picking a category) instead of having to hunt
+                     through the sidebar. -->
+                <button type="button" id="qaOpenCategories" style="background:transparent; border:0; color:var(--accent); font-size:11px; font-weight:600; cursor:pointer; padding:2px 6px; border-radius:6px; text-transform:none; letter-spacing:0;">
+                  Atur kategori →
+                </button>
+              </div>
               ${renderCatsHtml()}
               ${renderSubcatHtml()}
             </div>
@@ -14658,6 +14705,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
             newCat.iconColor = '#64748b';
             step = 'newcat';
             refresh();
+          });
+          // Shortcut to the standalone Categories management page —
+          // closes the Quick-Add modal first so the user lands on the
+          // table rather than seeing it through a stacked modal.
+          document.getElementById('qaOpenCategories')?.addEventListener('click', () => {
+            closeModal();
+            try { navigateTo('categories'); } catch {}
           });
           // "+ Baru" inside the sub-category strip — adds a new sub
           // under the currently-selected parent category WITHOUT going
@@ -16667,11 +16721,36 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (chatLockedLoginBtn) chatLockedLoginBtn.addEventListener('click', goToAkun);
 
       // Nav
+      // Re-tap behavior: tapping the nav item that's already active
+      // scrolls the current view back to the top (instead of being a
+      // no-op). Skipped for "chat" because the chat view's natural
+      // anchor is bottom (latest message) — scroll-to-top would
+      // disorient a user mid-conversation.
+      const _scrollViewToTop = () => {
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { window.scrollTo(0, 0); }
+        // Also scroll the active <section.view> in case it has its own
+        // scroll context (some sub-views do).
+        const activeView = document.querySelector('.view.active');
+        if (activeView) {
+          try { activeView.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+          activeView.scrollTop = 0;
+        }
+      };
+      const _handleNavClick = (target) => {
+        // Compare against the public nav key (set by navigateTo) so
+        // redirected routes like 'categories' → view-sheets still
+        // detect the re-tap correctly.
+        if (_activeNavKey === target && target !== 'chat') {
+          _scrollViewToTop();
+          return;
+        }
+        navigateTo(target);
+      };
       document.querySelectorAll('[data-view]').forEach((b) => {
-        b.addEventListener('click', () => navigateTo(b.dataset.view));
+        b.addEventListener('click', () => _handleNavClick(b.dataset.view));
       });
       document.querySelectorAll('[data-nav]').forEach((b) => {
-        b.addEventListener('click', () => navigateTo(b.dataset.nav));
+        b.addEventListener('click', () => _handleNavClick(b.dataset.nav));
       });
 
       // Mobile menu
@@ -16960,7 +17039,32 @@ Use the user input carefully, but keep the output minimal and structured. Return
         if (ed) {
           const idx = parseInt(ed.dataset.catEdit, 10);
           const c = state.categories[idx];
-          openCategoryModal(c, (u) => { state.categories[idx] = u; saveState(); renderSheets(); toast('Tersimpan ✓'); });
+          // Capture pre-edit identity so the modal save can propagate
+          // the rename to existing transactions (same logic as the
+          // inline edit path — see handleInlineEdit wire-up below).
+          const oldType = c.type, oldCat = c.category, oldSub = c.subCategory;
+          openCategoryModal(c, (u) => {
+            state.categories[idx] = u;
+            const renamedCat = String(u.category)    !== String(oldCat);
+            const renamedSub = String(u.subCategory) !== String(oldSub);
+            const retypedRow = String(u.type)        !== String(oldType);
+            if (renamedCat || renamedSub || retypedRow) {
+              let touched = 0;
+              const now = Date.now();
+              for (const t of (state.transactions || [])) {
+                if (!t || t.Type !== oldType) continue;
+                if (String(t['Transaction Category']) !== String(oldCat)) continue;
+                if (String(t['Sub-Category'])         !== String(oldSub)) continue;
+                if (renamedCat) t['Transaction Category'] = u.category;
+                if (renamedSub) t['Sub-Category']         = u.subCategory;
+                if (retypedRow) t.Type                    = u.type;
+                t._modifiedAt = now;
+                touched++;
+              }
+              if (touched > 0) toast(`${touched} transaksi otomatis ikut di-update`, 'info');
+            }
+            saveState(); renderSheets(); toast('Tersimpan ✓');
+          });
           return;
         }
         const d = e.target.closest('[data-cat-delete]');
@@ -16978,8 +17082,41 @@ Use the user input carefully, but keep the output minimal and structured. Return
         catBody,
         (idx) => state.categories[parseInt(idx, 10)],
         (row, field, value) => {
+          // Cache pre-edit identity so we can rename matching txns when
+          // the user changes category or subCategory. Type changes are
+          // rarer but still propagate (e.g. user moves an Income row to
+          // Expense — should retroactively retag the transactions too).
+          const oldType = row.type;
+          const oldCat  = row.category;
+          const oldSub  = row.subCategory;
           row[field] = value;
-          saveState(); renderCategories();
+          const renamedCat = field === 'category'    && oldCat !== value;
+          const renamedSub = field === 'subCategory' && oldSub !== value;
+          const retypedRow = field === 'type'        && oldType !== value;
+          if (renamedCat || renamedSub || retypedRow) {
+            // Update every transaction that matched the OLD identity.
+            // Match has to use all three fields together — different
+            // sub-categories under the same category are independent
+            // rows, so renaming "Charity" sub of "Donation / Charity"
+            // must NOT touch transactions tagged "Zakat / Sedekah".
+            let touched = 0;
+            const now = Date.now();
+            for (const t of (state.transactions || [])) {
+              if (!t || t.Type !== oldType) continue;
+              if (String(t['Transaction Category']) !== String(oldCat)) continue;
+              if (String(t['Sub-Category'])         !== String(oldSub)) continue;
+              if (renamedCat) t['Transaction Category'] = value;
+              if (renamedSub) t['Sub-Category']         = value;
+              if (retypedRow) t.Type                    = value;
+              t._modifiedAt = now;
+              touched++;
+            }
+            if (touched > 0) {
+              toast(`${touched} transaksi otomatis ikut di-update`, 'info');
+            }
+          }
+          saveState();
+          renderCategories();
         }
       );
 
@@ -18694,7 +18831,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
     // so existing users see the new tour once.
     const TOUR_FLOWS = {
       welcome: {
-        key: 'tour_v2_welcome_done',
+        // Bumped v2 → v3 because the step list grew (added Categories
+        // pointer after Detail). Existing users will see the welcome
+        // tour again once with the new step included.
+        key: 'tour_v3_welcome_done',
         label: 'Welcome Tour',
         desc: 'Pengenalan singkat semua fitur utama inputIn.',
         startView: 'dashboard',
@@ -18741,6 +18881,17 @@ Use the user input carefully, but keep the output minimal and structured. Return
             targetDesktop: '[data-view="chat"]',
             title: 'Chat Bot',
             body: 'Cara tercepat input transaksi. Tinggal tulis "kopi 25k" dan bot yang catat untuk kamu.',
+          },
+          {
+            id: 'categories',
+            // Categories has its own desktop sidebar entry but no
+            // dedicated mobile bottom-nav button (Settings card and the
+            // QuickAdd inline link cover mobile discovery). Tour falls
+            // back to the desktop selector if mobile target isn't found.
+            targetMobile: '[data-view="categories"]',
+            targetDesktop: '[data-view="categories"]',
+            title: 'Categories',
+            body: 'Atur kategori + sub-kategori transaksi kamu di sini. Tambah keyword bantu AI kategorikan otomatis. Rename kategori = transaksi lama otomatis ikut update.',
           },
           {
             id: 'plans',
