@@ -8922,6 +8922,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
       // non-admins regardless of how they navigated here.
       applyAdminGating();
       let tab = state.sheetTab || 'transactions';
+      // The Categories tab was removed from the sheet-tabs strip — but
+      // state.sheetTab can still be 'categories' if the user just came
+      // from the standalone Categories route (which sets sheetTab so
+      // the categories pane renders for the grouped-card UI). When the
+      // user then navigates to plain Sheets, we have to snap sheetTab
+      // back to 'transactions' so the page doesn't show an empty
+      // toolbar with the categories pane visible underneath. Detect
+      // "user wants Sheets, not Categories" via the public nav key.
+      if (tab === 'categories' && _activeNavKey !== 'categories') {
+        tab = 'transactions';
+        state.sheetTab = tab;
+      }
       // Defensive: bounce non-admins off Dictionary if state was stale.
       if (tab === 'dictionary' && !isAdmin()) {
         tab = 'transactions';
@@ -19278,16 +19290,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
           },
           {
             id: 'categories',
-            // Desktop has a dedicated sidebar entry; mobile bottom-nav
-            // doesn't (no room without crowding 5→6). On mobile we
-            // intentionally render this step as a centered card with
-            // no spotlight — pointing to the hidden desktop sidebar
-            // element ended up spotlighting random off-screen geometry
-            // because the sidebar is transform-hidden, not display:none.
-            targetMobile: null,
+            // On mobile, Categories lives in the slide-out side panel
+            // — point the spotlight to the hamburger button so the
+            // user knows exactly where to tap. On desktop it's a
+            // dedicated sidebar entry that's always visible.
+            targetMobile: '#btnMobileMenu',
             targetDesktop: '[data-view="categories"]',
             title: 'Categories',
-            body: 'Atur kategori + sub-kategori transaksi kamu di sini. Tambah keyword bantu AI kategorikan otomatis. Rename kategori = transaksi lama otomatis ikut update. Akses dari sidebar atau lewat link "Atur kategori" di Quick-Add modal.',
+            body: 'Atur kategori + sub-kategori transaksi kamu di sini. Tambah keyword bantu AI kategorikan otomatis. Rename kategori = transaksi lama otomatis ikut update. Buka via tombol menu (☰) di kiri atas → group Setup → Categories.',
           },
           {
             id: 'plans',
