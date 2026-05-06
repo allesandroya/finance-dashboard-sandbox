@@ -4563,6 +4563,8 @@
     }
     .ib-del:hover { color: var(--danger); border-color: var(--danger); }
     .ib-row-goal { grid-template-columns: 1fr 120px 36px 36px; }
+    /* Credit-card rows have a 4th col for the optional credit limit. */
+    .ib-row-credit { grid-template-columns: 1fr 120px 120px 36px; }
     .ib-edit-goal {
       background: transparent; border: 1px solid var(--border);
       color: var(--text-tertiary); width: 36px; height: 36px; padding: 0;
@@ -4582,6 +4584,7 @@
       .ib-row { grid-template-columns: 1fr 110px 32px; gap: 6px; }
       .ib-row-cash { grid-template-columns: 90px 1fr; }
       .ib-row-goal { grid-template-columns: 1fr 100px 32px 32px; }
+      .ib-row-credit { grid-template-columns: 1fr 95px 95px 32px; }
       .ib-del, .ib-edit-goal { width: 32px; height: 32px; }
       .ib-group { padding: 10px 12px; }
       .ib-total-val { font-size: 18px; }
@@ -6776,6 +6779,12 @@
         { type: 'Expense', category: 'Family', subCategory: 'Parents Support', example: 'orang tua' },
         { type: 'Expense', category: 'Family', subCategory: 'Sibling Support', example: 'kakak, adik' },
         { type: 'Expense', category: 'Donation / Charity', subCategory: 'Zakat / Sedekah', example: 'zakat, sedekah, infaq' },
+        // Credit-card-related expenses live as their own top-level category
+        // (not nested under another) so users searching "Bunga" find them
+        // immediately and budgets can target interest spending alone.
+        { type: 'Expense', category: 'Interest / Bunga',     subCategory: 'Credit Card Interest', example: 'bunga kartu kredit, bunga kk' },
+        { type: 'Expense', category: 'Interest / Bunga',     subCategory: 'Late Fee',             example: 'denda telat bayar, late fee' },
+        { type: 'Expense', category: 'Interest / Bunga',     subCategory: 'Annual Fee',           example: 'iuran tahunan kartu' },
         { type: 'Income', category: 'Salary', subCategory: 'Monthly Salary', example: 'gaji' },
         { type: 'Income', category: 'Freelance', subCategory: 'Project Fee', example: 'freelance, project' },
         { type: 'Income', category: 'Digital Product Sales', subCategory: 'Course Sales', example: 'jual course' },
@@ -7018,6 +7027,13 @@
 
       // Donation
       { kw: ['zakat', 'sedekah', 'infaq', 'donasi', 'donation'], out: ['Expense', 'Donation / Charity', 'Zakat / Sedekah', null] },
+
+      // Credit-card-related expenses. Bunga / late fee / annual fee all
+      // route to the dedicated Interest category. AI also gets a hint
+      // about credit-card semantics in the system prompt (see parseWithAI).
+      { kw: ['bunga kartu kredit', 'bunga kk', 'bunga credit card', 'cc interest'], out: ['Expense', 'Interest / Bunga', 'Credit Card Interest', 'Bunga Kartu Kredit'] },
+      { kw: ['denda telat', 'late fee', 'denda kk', 'denda kartu'], out: ['Expense', 'Interest / Bunga', 'Late Fee', 'Late Fee Kartu Kredit'] },
+      { kw: ['iuran tahunan', 'annual fee', 'biaya tahunan kartu'], out: ['Expense', 'Interest / Bunga', 'Annual Fee', 'Annual Fee'] },
     ];
 
     function normalizeLookup(s) {
@@ -7493,10 +7509,30 @@
       // "transfer bca", "nabung ke emergency fund", etc. and tag the transaction
       // with the matching name. Goal-type accounts are called out so the model
       // treats "nabung/tabung/setor ke X" as an Income tagged to that goal.
+      // Credit-card accounts (type:'credit') get an extra-strict semantics
+      // block so the model knows: purchases tagged to card = Expense
+      // (saldo card jadi makin negatif = utang nambah); paying the bill =
+      // Transfer dari rekening ke card (saldo card naik mendekati 0).
       const accountCatalog = getAccountCatalog();
+      const hasCreditCards = accountCatalog.some((a) => a.type === 'credit');
       const accountListBlock = accountCatalog.length > 1
         ? `\n\nUser's accounts (use one of these EXACT names if the user mentions a payment source OR a savings goal - e.g. "pake gopay", "via bca", "dari ovo", "nabung ke emergency fund"):\n${accountCatalog.map((a) => `- ${a.name} (${a.type})`).join('\n')}`
         : '';
+      const creditCardSemanticsBlock = hasCreditCards ? `\n
+CREDIT CARD SEMANTICS (the user has at least one account of type:'credit' above):
+- A purchase made WITH a credit card → emit an EXPENSE with \`account\` = the card's exact name. Examples:
+    "belanja indomaret 150rb pake bca card"  → Expense, account="BCA Card", Value=150000
+    "makan starbucks 75rb pake mandiri visa" → Expense, account="Mandiri Visa", Value=75000
+- PAYING the credit card bill → emit a TRANSFER from the source account to the card. Examples:
+    "bayar tagihan bca card 1jt dari bca"      → Transfer, fromAccount="BCA", toAccount="BCA Card", Value=1000000
+    "bayar kk 500rb"                          → Transfer, fromAccount=<user's main bank if known, else leave blank>, toAccount=<the credit card>, Value=500000
+    "lunasin tagihan mandiri visa 2.5jt"      → Transfer, fromAccount=…, toAccount="Mandiri Visa", Value=2500000
+- INTEREST charges from the card → emit an EXPENSE with \`account\` = the card's name AND Transaction Category = "Interest / Bunga", Sub-Category = "Credit Card Interest". Examples:
+    "bunga kartu kredit bca 50rb"             → Expense, account="BCA Card", Category="Interest / Bunga", Sub-Category="Credit Card Interest", Value=50000
+    "denda telat bayar kk 100rb"              → Expense, account="BCA Card" (or referenced card), Category="Interest / Bunga", Sub-Category="Late Fee", Value=100000
+    "iuran tahunan visa 350rb"                → Expense, account="<the visa card>", Category="Interest / Bunga", Sub-Category="Annual Fee", Value=350000
+- A REFUND or CASHBACK posted to the card → emit an INCOME with \`account\` = the card's name (this REDUCES the outstanding bill, same as a payment but Income type because money returned to user not transferred from another account).
+` : '';
 
       // System prompt ported from n8n "Cash Flow Bot" (AI Agent node).
       // Two independent dimensions drive the rules:
@@ -7642,7 +7678,7 @@ Dictionary rules:
   - Transaction Name = canonical name from the match
   - Transaction Category = category from the match
   - Sub-Category = sub-category from the match
-- Do not change dictionary wording; copy it exactly.${dictionaryHint}${historyHint}${accountListBlock}
+- Do not change dictionary wording; copy it exactly.${dictionaryHint}${historyHint}${accountListBlock}${creditCardSemanticsBlock}
 
 Account tagging (optional - only when user mentions a payment source or goal):
 - If the user input clearly references one of the account names listed above (case-insensitive, may be abbreviated, e.g. "gopay", "bca", "ovo", "emergency fund"), set "account" to the matching EXACT name from the list.
@@ -9714,11 +9750,16 @@ Use the user input carefully, but keep the output minimal and structured. Return
               // which account is sinking their auto-tagged transactions
               // when the default isn't Cash.
               const rowDefaultHint = nm ? renderDefaultAccountHint(nm) : '';
+              const rowClass = isLiability ? 'ib-row ib-row-credit' : 'ib-row';
+              const limitInput = isLiability
+                ? `<input type="text" inputmode="numeric" class="input ib-value rupiah-input" value="${row.creditLimit ? formatRupiahDigits(row.creditLimit) : ''}" placeholder="limit (opsional)" data-field="creditLimit" />`
+                : '';
               return `
               <div class="ib-row-wrap">
-                <div class="ib-row" data-group="${g.key}" data-idx="${idx}">
+                <div class="${rowClass}" data-group="${g.key}" data-idx="${idx}">
                   <input type="text" class="input ib-name" value="${escapeHtml(row.name || '')}" placeholder="${g.placeholder}" data-field="name" />
                   <input type="text" inputmode="numeric" class="input ib-value rupiah-input" value="${inputValDisplay ? formatRupiahDigits(inputValDisplay) : ''}" placeholder="${isLiability ? 'tagihan saat ini' : '0'}" data-field="value" />
+                  ${limitInput}
                   <button class="btn btn-icon btn-sm ib-del" aria-label="Delete">✕</button>
                 </div>
                 ${currentHtml}
@@ -9883,12 +9924,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
           inp.addEventListener('input', (e) => {
             const field = e.target.dataset.field;
             if (!state.initialBalances[key][idx]) return;
-            const numericField = field === 'value' || field === 'target';
+            const numericField = field === 'value' || field === 'target' || field === 'creditLimit';
             let parsedValue = numericField ? parseRupiahDigits(e.target.value) : e.target.value;
-            // Liability fix-up: input is the user's positive outstanding
-            // amount; storage is negative. Only the `value` field is
-            // inverted (target stays positive — credit cards don't have
-            // a target field but defensive in case future config adds).
+            // Liability fix-up: only the `value` field is inverted (the
+            // user types a positive outstanding amount → stored negative).
+            // creditLimit stays positive (it's the bank's credit ceiling,
+            // a real upper bound, not a balance).
             if (isLiability && field === 'value' && typeof parsedValue === 'number') {
               parsedValue = -Math.abs(parsedValue);
             }
@@ -11276,9 +11317,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
       investment: '#C97A3B',   // amber
       ewallet:    '#4F6AC8',   // indigo
       goal:       '#9F4FB8',   // purple - goals stand out
+      credit:     '#DC2626',   // red - credit cards are liabilities
     };
     const ACCOUNT_TYPE_LABELS = {
-      cash: 'Cash', bank: 'Bank', investment: 'Investment', ewallet: 'E-Wallet',
+      cash: 'Cash', bank: 'Bank', investment: 'Investment', ewallet: 'E-Wallet', credit: 'Credit Card',
     };
     // Inline stroke-icon SVGs keyed by scorecard type. Pick visual metaphors
     // that read instantly at 14px: banknote = cash, columned building = bank,
@@ -11291,6 +11333,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       ewallet:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><line x1="11" y1="18" x2="13" y2="18"/></svg>',
       goal:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
       budget:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V7a1 1 0 0 0-1-1H5a2 2 0 0 1 0-4h14v4"/><path d="M3 6v13a2 2 0 0 0 2 2h15v-4"/><path d="M16 14h5v4h-5a2 2 0 0 1 0-4z"/></svg>',
+      credit:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>',
     };
     function renderAccountsBalanceCards() {
       const accountsGroup = document.getElementById('dsAccountsGroup');
@@ -11422,17 +11465,51 @@ Use the user input carefully, but keep the output minimal and structured. Return
               const isSel = !editMode && cfActive && cf0.value === r.name;
               const isDim = !editMode && cfActive && !isSel;
               const cls = ['acct-card', isSel ? 'is-selected' : '', isDim ? 'is-dim' : '', editMode ? 'is-edit' : ''].filter(Boolean).join(' ');
-              // In edit mode each card carries a small drag handle (visual hint
-              // only — the entire card is draggable via attachEditDrag below).
               const dragHandle = editMode ? `
                 <span class="acct-drag-handle" aria-hidden="true">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="15" cy="18" r="1.2"/></svg>
                 </span>` : '';
-              // In edit mode we always expose data-f-value so the drag handler
-              // can identify the card; click-to-filter is suppressed by JS gate.
               const cardAttrs = editMode
                 ? `data-f-value="${escapeAttr(r.name)}" tabindex="-1"`
                 : `data-f-field="Account" data-f-value="${escapeAttr(r.name)}" role="button" tabindex="0"`;
+
+              // Credit card scorecard: outstanding bill rendered in red,
+              // optional utilization progress bar when creditLimit is set,
+              // soft warning chip at >=80%. The `r.balance` for a credit
+              // card is stored negative (= liability), so flip the sign for
+              // display so the user reads it as "Outstanding: Rp 2.5jt".
+              if (r.type === 'credit') {
+                const outstanding = Math.max(0, -Number(r.balance || 0));
+                const ccRec = (state.initialBalances?.creditCards || []).find((c) => c.name === r.name);
+                const limit = Number(ccRec?.creditLimit || 0);
+                const hasLimit = limit > 0;
+                const utilPct = hasLimit ? Math.max(0, Math.round((outstanding / limit) * 100)) : 0;
+                const utilHot = hasLimit && utilPct >= 80;
+                const remaining = hasLimit ? Math.max(0, limit - outstanding) : 0;
+                const overLimit = hasLimit && outstanding > limit;
+                const meterFillColor = overLimit || utilHot ? '#DC2626' : (utilPct >= 60 ? '#F59E0B' : '#9CA3AF');
+                const meter = hasLimit
+                  ? `<div class="goal-meter" role="progressbar" aria-valuenow="${Math.min(100, utilPct)}" aria-valuemin="0" aria-valuemax="100" style="margin-top:6px;">
+                       <div class="goal-meter-fill" style="width:${Math.min(100, utilPct)}%; background:${meterFillColor};"></div>
+                     </div>
+                     <div style="font-size:11px; color:var(--text-tertiary); margin-top:4px; line-height:1.4;">
+                       Limit Rp${formatCompact(limit)} · Sisa Rp${formatCompact(remaining)}
+                       ${utilHot ? `<span style="color:#DC2626; font-weight:600;"> · ${utilPct}% terpakai ⚠️</span>` : ` · ${utilPct}%`}
+                     </div>`
+                  : '';
+                return `
+                  <div class="${cls}" style="--acct-color:#DC2626; --contrib-pct:${pct};" ${cardAttrs}>
+                    ${dragHandle}
+                    <div class="acct-top">
+                      <span class="acct-ico">${icon}</span>
+                      <span class="acct-type">${escapeHtml(label)}</span>
+                    </div>
+                    <div class="acct-name">${escapeHtml(r.name)}</div>
+                    <div class="acct-balance" style="color:#DC2626;">Rp${formatCompact(outstanding)}<span style="font-size:10px; font-weight:500; color:var(--text-tertiary); margin-left:4px;">outstanding</span></div>
+                    ${meter}
+                  </div>`;
+              }
+
               return `
                 <div class="${cls}" style="--acct-color:${color}; --contrib-pct:${pct};" ${cardAttrs}>
                   ${dragHandle}
