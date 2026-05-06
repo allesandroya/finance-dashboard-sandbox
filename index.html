@@ -15671,7 +15671,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       state.transactions = [...userOwnTxns, ...demo];
 
       // ---- Opening balances (accounts) ----
-      if (!state.initialBalances) state.initialBalances = { cash: { value: 0 }, banks: [], investments: [], eWallets: [], goals: [] };
+      if (!state.initialBalances) state.initialBalances = { cash: { value: 0 }, banks: [], investments: [], eWallets: [], goals: [], creditCards: [] };
       const ib = state.initialBalances;
       // Merge-preserve: keep non-demo accounts the user already had.
       const stripDemo = (arr) => (Array.isArray(arr) ? arr.filter((a) => !a._isDemo) : []);
@@ -17939,6 +17939,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         ib.banks       = stripDemo(ib.banks);
         ib.investments = stripDemo(ib.investments);
         ib.eWallets    = stripDemo(ib.eWallets);
+        ib.creditCards = stripDemo(ib.creditCards);
         // cash is a single object, not an array. If it was seeded by demo,
         // reset to default { value: 0 } so cloud doesn't carry the demo
         // 500k balance.
@@ -18105,8 +18106,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const aMod = Number(aCash._modifiedAt || 0);
       const bMod = Number(bCash._modifiedAt || 0);
       out.cash = bMod > aMod ? bCash : aCash;
-      // Array groups: merge by id, newer _modifiedAt wins.
-      for (const key of ['banks', 'investments', 'eWallets', 'goals']) {
+      // Array groups: merge by id, newer _modifiedAt wins. creditCards
+      // MUST be in this list — if it's not, the merge sets it to
+      // undefined every sync pull, which silently eats every credit card
+      // the user has just added before autoPush has a chance to land.
+      for (const key of ['banks', 'investments', 'eWallets', 'goals', 'creditCards']) {
         out[key] = _mergeListById(a[key], b[key], 'id');
         // _mergeListById uses _tsOf which prefers _modifiedAt over ts.
       }
@@ -18148,6 +18152,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
         ib.banks       = stripDemo(ib.banks);
         ib.investments = stripDemo(ib.investments);
         ib.eWallets    = stripDemo(ib.eWallets);
+        ib.creditCards = stripDemo(ib.creditCards);
         if (ib.cash && ib.cash._isDemo) ib.cash = { value: 0 };
         cleanRemote.initialBalances = ib;
       }
