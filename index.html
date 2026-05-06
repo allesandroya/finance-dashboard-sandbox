@@ -6603,6 +6603,14 @@
         // accountBalance() the same way as any other account.
         //   shape: { id, name, value, target, dueDate }
         goals: [],
+        // Credit cards are LIABILITIES — stored value is negative (the
+        // current outstanding bill, e.g. -2,500,000 means "you owe Rp
+        // 2.5jt"). The UI shows a positive number to the user and inverts
+        // on save. Standard accountBalance math then handles purchases
+        // (Expense tagged here pushes balance more negative) and bill
+        // payments (Transfer to here pushes balance toward zero) without
+        // any special-casing.
+        creditCards: [],
       },
       // Budget (Phase 3). Goals migrated to initialBalances.goals in Phase 7.
       budgets: [],
@@ -6667,6 +6675,9 @@
             investments: Array.isArray(ib.investments) ? ib.investments : base.initialBalances.investments,
             eWallets:    Array.isArray(ib.eWallets)    ? ib.eWallets    : base.initialBalances.eWallets,
             goals:       migratedGoals,
+            // creditCards added in a later release — fall back to [] for
+            // older saved states so renderInitialBalances doesn't NPE.
+            creditCards: Array.isArray(ib.creditCards) ? ib.creditCards : [],
           },
           budgets: Array.isArray(parsed.budgets) ? parsed.budgets : [],
           recurring: Array.isArray(parsed.recurring) ? parsed.recurring : [],
@@ -6878,24 +6889,18 @@
 
     // Thousand-separator helpers for Rupiah amount inputs. Strips any non-digit
     // so users can only enter numbers, and renders with id-ID dots (55.382.828).
-    // Leading minus sign is preserved so users can enter NEGATIVE balances —
-    // needed for tracking credit-card outstanding bills as accounts (saldo
-    // negatif = utang ke bank kartu kredit). All other non-digit characters
-    // are stripped. Only the FIRST minus counts; "1-2" parses as 12.
+    // Negative balances aren't supported via direct input — iOS numpad
+    // doesn't have a minus key. Liabilities (credit cards) use a dedicated
+    // account group that stores values inverted internally instead, see
+    // ACCOUNT_GROUPS kind:'liability' + the renderInitialBalances logic.
     function formatRupiahDigits(v) {
-      const s = String(v == null ? '' : v);
-      const isNeg = /^\s*-/.test(s);
-      const digits = s.replace(/[^\d]/g, '');
-      if (!digits) return isNeg ? '-' : '';
-      return (isNeg ? '-' : '') + Number(digits).toLocaleString('id-ID');
+      const digits = String(v == null ? '' : v).replace(/[^\d]/g, '');
+      if (!digits) return '';
+      return Number(digits).toLocaleString('id-ID');
     }
     function parseRupiahDigits(v) {
-      const s = String(v == null ? '' : v);
-      const isNeg = /^\s*-/.test(s);
-      const digits = s.replace(/[^\d]/g, '');
-      if (!digits) return 0;
-      const n = Number(digits);
-      return isNeg ? -n : n;
+      const digits = String(v == null ? '' : v).replace(/[^\d]/g, '');
+      return digits ? Number(digits) : 0;
     }
     // Wire an input so keystrokes, paste, and IME are all coerced to digits
     // and shown with dot separators. Caret position is preserved by counting
@@ -9123,8 +9128,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
       const cashV = Number((ib.cash && ib.cash.value) || 0);
       const sumArr = (arr) => (Array.isArray(arr) ? arr : [])
         .reduce((s, a) => s + Number(a.value || 0), 0);
-      // Goals are real money already saved, so they count toward opening too.
-      return cashV + sumArr(ib.banks) + sumArr(ib.investments) + sumArr(ib.eWallets) + sumArr(ib.goals);
+      // Goals = money already saved, so they ADD to opening.
+      // Credit cards = liabilities stored as negative values, so summing
+      // them naturally SUBTRACTS the outstanding bill from net worth.
+      return cashV + sumArr(ib.banks) + sumArr(ib.investments) + sumArr(ib.eWallets) + sumArr(ib.goals) + sumArr(ib.creditCards);
     }
 
     // ===== Live Account Catalog (Phase 6) =====
@@ -9134,11 +9141,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
     function getAccountCatalog() {
       const ib = state.initialBalances || {};
       const out = [{ name: 'Cash', type: 'cash', opening: Number(ib.cash?.value || 0) }];
-      ['banks','investments','eWallets','goals'].forEach((bucket) => {
+      ['banks','investments','eWallets','goals','creditCards'].forEach((bucket) => {
         const typeLabel = bucket === 'banks' ? 'bank'
           : bucket === 'investments' ? 'investment'
           : bucket === 'eWallets' ? 'ewallet'
-          : 'goal';
+          : bucket === 'goals' ? 'goal'
+          : 'credit'; // creditCards
         (ib[bucket] || []).forEach((a) => {
           if (a && a.name) out.push({ name: a.name, type: typeLabel, opening: Number(a.value || 0) });
         });
@@ -9232,11 +9240,17 @@ Use the user input carefully, but keep the output minimal and structured. Return
       return opening + delta;
     }
 
-    // Config for the three account-array buckets rendered on Settings.
+    // Config for the four account-array buckets rendered on Settings.
+    // `kind:'liability'` flags credit cards so renderInitialBalances knows
+    // to render an inverted UX (user enters a positive outstanding bill,
+    // we store it as a negative `value` so existing accountBalance /
+    // sumInitialBalances math just works — purchases push the balance
+    // more negative, payments push it back toward zero).
     const ACCOUNT_GROUPS = [
-      { key: 'banks',       label: 'Bank Accounts',      icon: '🏦', placeholder: 'e.g. BCA, BNI, Mandiri' },
+      { key: 'banks',       label: 'Bank Accounts',       icon: '🏦', placeholder: 'e.g. BCA, BNI, Mandiri' },
       { key: 'investments', label: 'Investment Accounts', icon: '📈', placeholder: 'e.g. Bibit, Ajaib, Stockbit' },
       { key: 'eWallets',    label: 'E-Wallets',           icon: '📱', placeholder: 'e.g. GoPay, OVO, Dana' },
+      { key: 'creditCards', label: 'Credit Cards',        icon: '💳', placeholder: 'e.g. BCA Card, BNI Visa', kind: 'liability', subtitle: 'Isi tagihan saat ini (positif). Saldo otomatis tersimpan minus jadi net worth ikut terhitung.' },
     ];
 
     // Bulk re-tag modal — three modes for retroactive account assignment.
@@ -9669,15 +9683,30 @@ Use the user input carefully, but keep the output minimal and structured. Return
 
       const arrBlocks = ACCOUNT_GROUPS.map((g) => {
         const rows = (ib[g.key] || []);
-        const subtotal = rows.reduce((s, a) => s + Number(a.value || 0), 0);
+        const isLiability = g.kind === 'liability';
+        // For credit cards, the "subtotal" header should read as the
+        // outstanding bill (positive) — invert the sum so the user sees
+        // "Rp 2.5jt outstanding" rather than "-2.5jt".
+        const rawSubtotal = rows.reduce((s, a) => s + Number(a.value || 0), 0);
+        const subtotal = isLiability ? -rawSubtotal : rawSubtotal;
         const rowsHtml = rows.length
           ? rows.map((row, idx) => {
               const nm = (row.name || '').trim();
               const opening = Number(row.value || 0);
               const current = nm ? accountBalance(nm) : opening;
               const delta = current - opening;
+              // Liability rows: invert sign for display so user sees
+              // "Outstanding: Rp 2.5jt" (positive) instead of "-Rp 2.5jt".
+              // The input also displays the absolute value — user enters
+              // positive, save handler multiplies by -1 (see input listener).
+              const inputValDisplay = isLiability ? Math.abs(opening) : opening;
+              const currentDisplay = isLiability ? -current : current;
+              // For liabilities, an INCREASE in raw balance (toward 0) is
+              // GOOD (paying down), so the delta-color logic flips.
+              const deltaForColor = isLiability ? -delta : delta;
+              const currentLabel = isLiability ? 'Outstanding' : 'Current';
               const currentHtml = nm
-                ? `<div class="ib-current">Current: <strong>${formatCompact(current)}</strong>${delta !== 0 ? ` <span class="ib-delta ${delta >= 0 ? 'pos' : 'neg'}">(${delta >= 0 ? '+' : ''}${formatCompact(delta)})</span>` : ''}</div>`
+                ? `<div class="ib-current">${currentLabel}: <strong>${formatCompact(currentDisplay)}</strong>${delta !== 0 ? ` <span class="ib-delta ${deltaForColor >= 0 ? 'pos' : 'neg'}">(${deltaForColor >= 0 ? '+' : ''}${formatCompact(Math.abs(delta))})</span>` : ''}</div>`
                 : '';
               // If this account is the user's defaultAccount, append the
               // same "X transaksi dihitung ke [name] secara default" hint
@@ -9689,7 +9718,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
               <div class="ib-row-wrap">
                 <div class="ib-row" data-group="${g.key}" data-idx="${idx}">
                   <input type="text" class="input ib-name" value="${escapeHtml(row.name || '')}" placeholder="${g.placeholder}" data-field="name" />
-                  <input type="text" inputmode="numeric" class="input ib-value rupiah-input" value="${row.value ? formatRupiahDigits(row.value) : ''}" placeholder="0" data-field="value" />
+                  <input type="text" inputmode="numeric" class="input ib-value rupiah-input" value="${inputValDisplay ? formatRupiahDigits(inputValDisplay) : ''}" placeholder="${isLiability ? 'tagihan saat ini' : '0'}" data-field="value" />
                   <button class="btn btn-icon btn-sm ib-del" aria-label="Delete">✕</button>
                 </div>
                 ${currentHtml}
@@ -9697,14 +9726,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
               </div>`;
             }).join('')
           : `<div class="ib-empty">Belum ada akun. Klik <strong>+ Add</strong> di bawah untuk menambah.</div>`;
+        // Optional one-liner subtitle under the group title — used by
+        // creditCards to clarify "tagihan saat ini" UX. Other groups
+        // omit it (subtitle field absent in their config).
+        const subtitleHtml = g.subtitle
+          ? `<div style="font-size:11px; color:var(--text-tertiary); margin-top:2px; line-height:1.4;">${escapeHtml(g.subtitle)}</div>`
+          : '';
         return `
           <div class="ib-group" data-group="${g.key}">
             <div class="ib-group-head">
-              <span class="ib-group-title"><span class="ib-group-icon">${g.icon}</span>${g.label}</span>
+              <span class="ib-group-title">
+                <span class="ib-group-icon">${g.icon}</span>${g.label}
+                ${subtitleHtml}
+              </span>
               <span class="ib-group-sum">${formatCompact(subtotal)}</span>
             </div>
             <div class="ib-rows">${rowsHtml}</div>
-            <button class="btn btn-secondary btn-sm ib-add" data-group="${g.key}">+ Add ${g.label.replace(' Accounts', '').replace('E-Wallets', 'E-Wallet')}</button>
+            <button class="btn btn-secondary btn-sm ib-add" data-group="${g.key}">+ Add ${g.label.replace(' Accounts', '').replace('E-Wallets', 'E-Wallet').replace('Credit Cards', 'Credit Card')}</button>
           </div>`;
       }).join('');
 
@@ -9745,20 +9783,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
           <button class="btn btn-secondary btn-sm ib-add" data-group="goals">+ Add Goal</button>
         </div>`;
 
-      // Credit card hint — surfaces the "negative saldo awal" pattern so
-      // users know they can model credit card outstanding bills as a
-      // regular Bank account with a negative opening balance. Avoids the
-      // need for a dedicated Credit Card account type for now.
-      const creditCardHint = `
-        <div class="ib-hint" style="padding:10px 12px; margin-bottom:12px; background: rgba(251, 191, 36, 0.08); border-left: 3px solid #fbbf24; border-radius: 6px; font-size: 12px; line-height: 1.55; color: var(--text-secondary);">
-          💡 <strong>Punya kartu kredit?</strong> Bikin akun baru di Bank dengan nama kartumu (misal "BCA Card"), lalu isi saldo awal <strong>negatif</strong> sebesar tagihan saat ini (misal <code>-2.500.000</code>). Tiap belanja pakai kartu, tag transaksinya ke akun itu — saldo makin minus. Tiap bayar tagihan, transfer dari rekening utama ke akun kartu — saldo naik mendekati 0.
-        </div>`;
       host.innerHTML = `
         <div class="ib-total-row">
           <span class="ib-total-lbl">Total Opening Balance</span>
           <span class="ib-total-val">${formatCompact(total)}</span>
         </div>
-        ${creditCardHint}
         ${cashBlock}
         ${arrBlocks}
         ${goalsBlock}
@@ -9839,6 +9868,13 @@ Use the user input carefully, but keep the output minimal and structured. Return
       host.querySelectorAll('.ib-row[data-group]').forEach((row) => {
         const key = row.dataset.group;
         const idx = Number(row.dataset.idx);
+        // Credit cards are stored as NEGATIVE values internally (the user
+        // enters a positive outstanding bill in the input — see render
+        // path above for inversion). Detect group kind once so the input
+        // listener can flip the sign on save without scattering specials
+        // through the value-write path.
+        const groupCfg = ACCOUNT_GROUPS.find((g) => g.key === key);
+        const isLiability = !!(groupCfg && groupCfg.kind === 'liability');
         // Wire thousand-separator on every numeric input in this row.
         // Skips name fields (text-only). Without this attachment, the
         // input would still capture digits but not auto-format with dots.
@@ -9848,9 +9884,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
             const field = e.target.dataset.field;
             if (!state.initialBalances[key][idx]) return;
             const numericField = field === 'value' || field === 'target';
-            state.initialBalances[key][idx][field] = numericField
-              ? parseRupiahDigits(e.target.value)
-              : e.target.value;
+            let parsedValue = numericField ? parseRupiahDigits(e.target.value) : e.target.value;
+            // Liability fix-up: input is the user's positive outstanding
+            // amount; storage is negative. Only the `value` field is
+            // inverted (target stays positive — credit cards don't have
+            // a target field but defensive in case future config adds).
+            if (isLiability && field === 'value' && typeof parsedValue === 'number') {
+              parsedValue = -Math.abs(parsedValue);
+            }
+            state.initialBalances[key][idx][field] = parsedValue;
             // Bump _modifiedAt so cloud merge picks this device's edit
             // when the same row is edited concurrently from another device.
             state.initialBalances[key][idx]._modifiedAt = Date.now();
@@ -9861,12 +9903,17 @@ Use the user input carefully, but keep the output minimal and structured. Return
               state.initialBalances[key][idx].id = uid();
             }
             saveState();
-            // Live-update subtotals + total (goals subtotal = sum of opening savings)
-            const sub = state.initialBalances[key].reduce((s, a) => s + Number(a.value || 0), 0);
+            // Live-update subtotals + total. For liability groups invert
+            // the displayed subtotal (header reads as outstanding bill).
+            const rawSub = state.initialBalances[key].reduce((s, a) => s + Number(a.value || 0), 0);
+            const displaySub = isLiability ? -rawSub : rawSub;
             const head = row.closest('.ib-group').querySelector('.ib-group-sum');
-            if (head) head.textContent = formatCompact(sub);
+            if (head) head.textContent = formatCompact(displaySub);
             host.querySelector('.ib-total-val').textContent = formatCompact(sumInitialBalances());
-            // Update this row's "Current:" / "Progress:" line in place
+            // Update this row's "Current:" / "Outstanding:" / "Progress:"
+            // line in place. Liability rows show the inverted balance with
+            // an "Outstanding" label instead of "Current"; delta colors
+            // also flip (paying down = positive).
             const wrap = row.closest('.ib-row-wrap');
             const cur = wrap && wrap.querySelector('.ib-current');
             const entry = state.initialBalances[key][idx];
@@ -9883,6 +9930,11 @@ Use the user input carefully, but keep the output minimal and structured. Return
                 } else {
                   html = `Current: <strong>${formatCompact(current)}</strong>`;
                 }
+              } else if (isLiability) {
+                const delta = current - opening;
+                const deltaForColor = -delta; // toward 0 = good (paying down)
+                const label = 'Outstanding';
+                html = `${label}: <strong>${formatCompact(-current)}</strong>${delta !== 0 ? ` <span class="ib-delta ${deltaForColor >= 0 ? 'pos' : 'neg'}">(${deltaForColor >= 0 ? '+' : ''}${formatCompact(Math.abs(delta))})</span>` : ''}`;
               } else {
                 const delta = current - opening;
                 html = `Current: <strong>${formatCompact(current)}</strong>${delta !== 0 ? ` <span class="ib-delta ${delta >= 0 ? 'pos' : 'neg'}">(${delta >= 0 ? '+' : ''}${formatCompact(delta)})</span>` : ''}`;
@@ -19404,6 +19456,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
         _ensureIds(state.initialBalances.eWallets);
         // goals already had `id` historically; double-check anyway.
         _ensureIds(state.initialBalances.goals);
+        // creditCards added in a later release — initialize to [] for
+        // saved states that pre-date this group, then ensure ids.
+        if (!Array.isArray(state.initialBalances.creditCards)) {
+          state.initialBalances.creditCards = [];
+        }
+        _ensureIds(state.initialBalances.creditCards);
       }
 
       // Fire the recurring-transaction materializer once per boot - catches
