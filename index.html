@@ -14479,11 +14479,27 @@ Use the user input carefully, but keep the output minimal and structured. Return
             <span class="cat-icon" style="--cat-tint: ${opt.color};">${ICON_SVG[opt.key]}</span>
           </button>`).join('');
         const previewSvg = ICON_SVG[newCat.iconKey] || ICON_SVG.tag;
+        // Existing categories of the active type — surfaced via <datalist>
+        // so the user can either pick one (= add a sub to existing) or
+        // type a brand-new name (= create whole new category). The
+        // browser handles autocomplete; the input/save logic below
+        // detects the case by string match against the same list.
+        const catType = draft.type === 'Transfer' ? 'Expense' : draft.type;
+        const existingCats = [...new Set(
+          state.categories.filter((c) => c.type === catType).map((c) => c.category)
+        )];
+        const datalistOptions = existingCats
+          .map((c) => `<option value="${escapeAttr(c)}"></option>`)
+          .join('');
+        // Initial match-state for the inline hint + icon-section toggle.
+        // updateNewCatMatch() (wired below) keeps these in sync as the
+        // user types/blurs.
+        const initialMatch = newCat.name && existingCats.some((c) => c.toLowerCase() === newCat.name.toLowerCase());
         return `
           <div class="qa-newcat">
             <div class="qa-step-head">
               <button type="button" class="qa-step-back" id="qaNewCatBack">← Kembali</button>
-              <div class="qa-step-title">Kategori Baru - ${escapeAttr(draft.type)}</div>
+              <div class="qa-step-title">Tambah Kategori - ${escapeAttr(draft.type)}</div>
               <span style="width:60px;"></span>
             </div>
 
@@ -14491,16 +14507,22 @@ Use the user input carefully, but keep the output minimal and structured. Return
               <div class="label">Nama Kategori</div>
               <div style="display:flex;gap:10px;align-items:center;">
                 <span class="cat-icon" id="qaNewCatIconPreview" style="--cat-tint: ${newCat.iconColor};">${previewSvg}</span>
-                <input type="text" class="input" id="qaNewCatName" placeholder="misal: Kopi Harian" value="${escapeAttr(newCat.name)}" style="flex:1;" />
+                <input list="qaNewCatNameList" type="text" class="input" id="qaNewCatName" placeholder="ketik baru atau pilih existing" value="${escapeAttr(newCat.name)}" style="flex:1;" autocomplete="off" />
+                <datalist id="qaNewCatNameList">${datalistOptions}</datalist>
+              </div>
+              <div class="hint" id="qaNewCatHint" style="margin-top:6px;">
+                ${initialMatch
+                  ? `✓ Kategori sudah ada — sub-kategori akan ditambah ke kategori ini.`
+                  : `Ketik nama untuk bikin kategori baru, atau pilih dari list untuk tambah sub ke kategori yang sudah ada.`}
               </div>
             </div>
 
             <div class="qa-field">
-              <div class="label">Nama Sub-Kategori <span style="color:var(--text-muted);font-weight:normal;text-transform:none;letter-spacing:0;">(opsional)</span></div>
-              <input type="text" class="input" id="qaNewCatSub" placeholder="kosongkan untuk pakai nama kategori" value="${escapeAttr(newCat.sub)}" />
+              <div class="label" id="qaNewCatSubLabel">Nama Sub-Kategori${initialMatch ? '' : ' <span style="color:var(--text-muted);font-weight:normal;text-transform:none;letter-spacing:0;">(opsional)</span>'}</div>
+              <input type="text" class="input" id="qaNewCatSub" placeholder="${initialMatch ? 'misal: Kopi Susu' : 'kosongkan untuk pakai nama kategori'}" value="${escapeAttr(newCat.sub)}" />
             </div>
 
-            <div class="qa-field">
+            <div class="qa-field" id="qaNewCatIconSection" style="${initialMatch ? 'display:none;' : ''}">
               <div class="label">Pilih Icon</div>
               <div class="qa-emoji-wrap" id="qaEmojiWrap">
                 <div class="qa-icon-grid">${iconTiles}</div>
@@ -14636,6 +14658,55 @@ Use the user input carefully, but keep the output minimal and structured. Return
             step = 'main';
             refresh();
           });
+          // Live "is this an existing category?" detection. Inline DOM
+          // toggles instead of refresh() so the input doesn't lose focus
+          // mid-typing. Three things change when the typed name matches
+          // an existing category:
+          //   1. Hint flips to "✓ sub akan ditambah ke kategori ini"
+          //   2. Sub-Kategori label drops the "(opsional)" hint (sub is
+          //      required when adding to existing — otherwise this whole
+          //      flow becomes a no-op)
+          //   3. Icon picker section hides (existing icon is reused)
+          //   4. Icon preview at top of input flips to the existing
+          //      category's icon if it has one
+          const catType = draft.type === 'Transfer' ? 'Expense' : draft.type;
+          const updateNewCatMatch = () => {
+            const nameInput = document.getElementById('qaNewCatName');
+            const value = String(nameInput?.value || '').trim();
+            newCat.name = value;
+            const existing = value ? state.categories.find((c) =>
+              c.type === catType && String(c.category).toLowerCase() === value.toLowerCase()
+            ) : null;
+            const matches = !!existing;
+            const hintEl    = document.getElementById('qaNewCatHint');
+            const iconSec   = document.getElementById('qaNewCatIconSection');
+            const subLabel  = document.getElementById('qaNewCatSubLabel');
+            const subInput  = document.getElementById('qaNewCatSub');
+            const previewEl = document.getElementById('qaNewCatIconPreview');
+            if (hintEl) {
+              hintEl.innerHTML = matches
+                ? `✓ Kategori "<strong>${escapeHtml(existing.category)}</strong>" sudah ada — sub-kategori akan ditambah ke kategori ini.`
+                : `Ketik nama untuk bikin kategori baru, atau pilih dari list untuk tambah sub ke kategori yang sudah ada.`;
+            }
+            if (iconSec) iconSec.style.display = matches ? 'none' : '';
+            if (subLabel) subLabel.innerHTML = matches
+              ? 'Nama Sub-Kategori'
+              : 'Nama Sub-Kategori <span style="color:var(--text-muted);font-weight:normal;text-transform:none;letter-spacing:0;">(opsional)</span>';
+            if (subInput) subInput.placeholder = matches ? 'misal: Kopi Susu' : 'kosongkan untuk pakai nama kategori';
+            // Swap the preview icon to the matched category's icon when
+            // available; fall back to the user's current pick / default.
+            if (previewEl) {
+              if (matches && existing.iconKey) {
+                previewEl.style.setProperty('--cat-tint', existing.iconColor || '#64748b');
+                previewEl.innerHTML = ICON_SVG[existing.iconKey] || ICON_SVG.tag;
+              } else {
+                previewEl.style.setProperty('--cat-tint', newCat.iconColor);
+                previewEl.innerHTML = ICON_SVG[newCat.iconKey] || ICON_SVG.tag;
+              }
+            }
+          };
+          document.getElementById('qaNewCatName')?.addEventListener('input', updateNewCatMatch);
+          document.getElementById('qaNewCatName')?.addEventListener('change', updateNewCatMatch);
           document.querySelectorAll('[data-qa-iconkey]').forEach((btn) => {
             btn.addEventListener('click', () => {
               newCat.iconKey = btn.dataset.qaIconkey;
@@ -14656,6 +14727,53 @@ Use the user input carefully, but keep the output minimal and structured. Return
         captureFields();
         if (!newCat.name) { toast('Nama kategori wajib.', 'error'); return; }
         const catType = draft.type === 'Transfer' ? 'Expense' : draft.type;
+        // Branch on whether the user picked an EXISTING category from the
+        // datalist (or typed an exact name match) versus a brand-new name.
+        const existing = state.categories.find((c) =>
+          c.type === catType && String(c.category).toLowerCase() === newCat.name.toLowerCase()
+        );
+
+        if (existing) {
+          // Adding-sub-to-existing flow. Sub is required here — without
+          // it this save is a no-op (the category already exists). Use
+          // the existing category's canonical capitalization so we don't
+          // create case variants.
+          if (!newCat.sub) {
+            toast('Sub-kategori wajib saat menambahkan ke kategori existing.', 'error');
+            return;
+          }
+          const subDup = state.categories.some((c) =>
+            c.type === catType &&
+            String(c.category).toLowerCase() === existing.category.toLowerCase() &&
+            String(c.subCategory || '').toLowerCase() === newCat.sub.toLowerCase()
+          );
+          if (subDup) {
+            // Just select the existing combo — friendlier than refusing.
+            draft.category = existing.category;
+            draft.subCategory = newCat.sub;
+            step = 'main';
+            refresh();
+            toast(`"${newCat.sub}" sudah ada di "${existing.category}" — dipilih.`);
+            return;
+          }
+          state.categories.push({
+            type: catType,
+            category: existing.category,
+            subCategory: newCat.sub,
+            example: '',
+          });
+          saveState();
+          draft.category = existing.category;
+          draft.subCategory = newCat.sub;
+          step = 'main';
+          refresh();
+          toast(`Sub "${newCat.sub}" ditambah ke "${existing.category}" ✓`);
+          return;
+        }
+
+        // Brand-new category path. Sub stays optional — when blank we
+        // mirror the category name as the sub so a single transaction
+        // can be filed without forcing the user to invent a sub-name.
         const row = {
           type: catType,
           category: newCat.name,
