@@ -6409,10 +6409,10 @@
                 <hr style="border:none; border-top:1px solid var(--border); margin:4px 0;" />
                 <div class="row-between" style="flex-wrap:wrap; gap:10px;">
                   <div>
-                    <div style="font-weight:600;">📊 Sheets Tour</div>
-                    <div class="text-sm text-muted">Tabel transaksi & kategori - search, filter, edit, export CSV.</div>
+                    <div style="font-weight:600;">🏷️ Categories Tour</div>
+                    <div class="text-sm text-muted">Atur kategori, sub-kategori, dan keyword AI Chat Bot.</div>
                   </div>
-                  <button class="btn btn-secondary btn-sm" data-replay-tour="sheets">Mulai</button>
+                  <button class="btn btn-secondary btn-sm" data-replay-tour="categories">Mulai</button>
                 </div>
                 <hr style="border:none; border-top:1px solid var(--border); margin:4px 0;" />
                 <div class="row-between" style="flex-wrap:wrap; gap:10px;">
@@ -8156,8 +8156,10 @@ Use the user input carefully, but keep the output minimal and structured. Return
       if (view === 'plans') renderPlans();
       updateMobileFab();
       closeSidebarMobile();
-      // Fire per-page first-visit deep-dive tour (Plans / Settings).
-      try { _tourMaybeStartForView(view); } catch {}
+      // Fire per-page first-visit deep-dive tour. Pass the PUBLIC nav
+      // key so 'categories' fires its own tour instead of the Sheets
+      // tour that 'sheets' (the redirected internal view) used to map to.
+      try { _tourMaybeStartForView(navKey); } catch {}
     }
 
     // Mobile FAB context. Only shown on Dashboard - opens the Quick-Add
@@ -19485,65 +19487,64 @@ Use the user input carefully, but keep the output minimal and structured. Return
         ],
       },
 
-      sheets: {
-        // Sheets is the spreadsheet-style raw view of every transaction
-        // and the master Categories list. Power users live here for bulk
-        // edit, search, and CSV export. Tour walks the toolbar, the
-        // table columns (incl. the new Account column), and the inline-
-        // edit affordance.
-        key: 'tour_v1_sheets_done',
-        label: 'Sheets Tour',
-        desc: 'Tabel transaksi & kategori - search, filter, edit cell, export CSV.',
-        startView: 'sheets',
+      categories: {
+        // Categories is the taxonomy hub: parent categories with nested
+        // sub-categories, optional AI keywords, and per-row icon overrides.
+        // Replaced the prior Sheets tour because Categories now has its
+        // own dedicated nav slot and is the main "setup" page users
+        // visit, while Sheets is mostly a raw-data archive.
+        key: 'tour_v1_categories_done',
+        label: 'Categories Tour',
+        desc: 'Atur kategori, sub-kategori, dan keyword AI Chat Bot.',
+        startView: 'categories',
         steps: [
           {
-            id: 'sheets-welcome',
+            id: 'cat-welcome',
             target: null,
-            title: 'Selamat datang di Sheets 📊',
-            body: 'Tampilan spreadsheet untuk semua transaksi dan kategori kamu. Mirip Google Sheets - bisa search, filter, edit cell langsung, dan export ke CSV. Yuk lihat tools-nya.',
-            before: () => { state.sheetTab = 'transactions'; renderSheets(); },
+            title: 'Selamat datang di Categories 🏷️',
+            body: 'Halaman ini buat atur taksonomi transaksi kamu. Tiap kategori bisa punya banyak sub-kategori, dan tiap sub bisa punya contoh keyword yang dibaca AI Chat Bot untuk otomatis kategorikan transaksi yang cocok.',
           },
           {
-            id: 'sheets-tabs',
-            target: '#sheetTabs',
-            title: 'Tab antar tabel',
-            body: 'Switch antara Transactions (semua catatan keuangan-mu), Categories (master kategori + sub-kategori), dan Dictionary (alias merchant - admin only). Angka di samping label = jumlah row.',
+            id: 'cat-type',
+            target: '.cat-tab-switch',
+            title: 'Switch Expense / Income',
+            body: 'Pilih tipe kategori yang mau diatur. Tab tinted oranye saat aktif untuk Expense, hijau untuk Income — gampang dilihat sambil scroll.',
           },
           {
-            id: 'sheets-search',
-            target: '#txnSearch',
-            title: 'Cari transaksi',
-            body: 'Ketik nama, kategori, atau sub-kategori untuk filter. Pencarian instan, tanpa loading.',
+            id: 'cat-group',
+            target: '.cat-group:first-of-type .cat-group-head',
+            title: 'Kategori induk',
+            body: 'Tiap kartu = satu kategori dengan icon-nya. Header nampakin nama + jumlah sub. Tap header untuk expand → lihat sub-kategori-nya.',
           },
           {
-            id: 'sheets-type-filter',
-            target: '#txnTypeFilter',
-            title: 'Filter tipe',
-            body: 'Saring per tipe: Income, Expense, atau semua. Combo dengan filter bulan untuk drill down lebih dalam.',
+            id: 'cat-expand',
+            target: '.cat-group:first-of-type',
+            title: 'Sub-kategori + keyword',
+            body: 'Sub-kategori muncul saat induknya di-expand, lengkap dengan contoh keyword di bawah nama. Tap pencil untuk edit nama / icon / keyword. Tap trash untuk hapus.',
+            // Force-expand the first group so the user can see what
+            // sub-rows + the "+ Tambah" CTA look like.
+            before: () => {
+              try {
+                const first = document.querySelector('.cat-group');
+                if (first && !first.classList.contains('is-open')) {
+                  const name = first.dataset.catGroup || '';
+                  if (name) _catExpanded.add(String(name).toLowerCase());
+                  first.classList.add('is-open');
+                }
+              } catch {}
+            },
           },
           {
-            id: 'sheets-month-filter',
-            target: '#txnMonthFilter',
-            title: 'Filter bulan',
-            body: 'Pilih bulan tertentu (YYYY-MM) untuk fokus ke periode itu saja. Default-nya semua bulan.',
+            id: 'cat-add-sub',
+            target: '.cat-group:first-of-type .cat-sub-add',
+            title: 'Tambah sub-kategori',
+            body: 'Kategori induk + icon-nya udah pre-filled. Tinggal isi nama sub baru + keyword opsional, AI Chat Bot otomatis pelajari mapping baru-nya.',
           },
           {
-            id: 'sheets-add',
-            target: '#btnAddTxn',
-            title: 'Add Row manual',
-            body: 'Buka modal Quick-Add untuk input transaksi baru tanpa lewat Chat Bot - cocok kalau kamu sudah tahu persis kategori & akun-nya.',
-          },
-          {
-            id: 'sheets-export',
-            target: '#btnExportCsv',
-            title: 'Export CSV',
-            body: 'Download semua transaksi sebagai CSV - termasuk kolom Account / From Account / To Account untuk analisis di Excel atau Google Sheets.',
-          },
-          {
-            id: 'sheets-table',
-            target: '.sheet-pane[data-pane="transactions"] .table-wrap',
-            title: 'Tabel + inline edit',
-            body: 'Klik cell mana saja untuk edit langsung (Date, Type, Name, Category, Sub-Category, Amount). Kolom Account baru sekarang nampakin akun tiap transaksi - pakai tombol pencil di kanan untuk ubah akun via modal lengkap.',
+            id: 'cat-add-cat',
+            target: '#btnAddCategory',
+            title: 'Tambah kategori baru',
+            body: 'Bikin kategori induk baru dari nol. Pilih icon sendiri + langsung set sub-kategori pertama dalam satu modal.',
           },
         ],
       },
@@ -20292,15 +20293,20 @@ Use the user input carefully, but keep the output minimal and structured. Return
       navigator.serviceWorker.register('sw.js').catch(() => {});
     }
 
-    // Per-page first-visit trigger. Called from navigateTo().
-    function _tourMaybeStartForView(view) {
+    // Per-page first-visit trigger. Called from navigateTo() with the
+    // PUBLIC nav key (e.g. 'categories'), not the redirected internal
+    // view ('sheets'). Mapping the redirected view fired the wrong tour
+    // — visiting Categories used to start the Sheets tour because both
+    // resolve to view='sheets' under the hood.
+    function _tourMaybeStartForView(navKey) {
       if (_tour.active) return;
-      const flowMap = { plans: 'plans', settings: 'settings', chat: 'chat', sheets: 'sheets' };
-      const flow = flowMap[view];
+      const flowMap = { plans: 'plans', settings: 'settings', chat: 'chat', categories: 'categories' };
+      const flow = flowMap[navKey];
       if (!flow) return;
       if (tourIsCompleted(flow)) return;
       if (!tourCanRun(flow)) return;
-      // Defer so the view's render finishes (Plans renders its tabs grid).
+      // Defer so the view's render finishes (Plans renders its tabs grid;
+      // Categories renders its grouped cards).
       setTimeout(() => {
         if (_tour.active) return;
         if (tourIsCompleted(flow)) return;
