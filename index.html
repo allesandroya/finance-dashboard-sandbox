@@ -3504,6 +3504,19 @@
       color: var(--accent);
       font-weight: 600;
     }
+    /* "+" affordance for adding a new sub-category to the current
+       parent category. Dashed border + accent color match the
+       category-tile "Baru" pattern so the visual language is
+       consistent across both levels. */
+    .qa-chip-add {
+      border-style: dashed !important;
+      color: var(--accent);
+      background: transparent;
+      font-weight: 600;
+    }
+    .qa-chip-add:hover {
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+    }
 
     .qa-keypad {
       display: grid;
@@ -14365,12 +14378,18 @@ Use the user input carefully, but keep the output minimal and structured. Return
             .filter((c) => c.type === draft.type && c.category === draft.category)
             .map((c) => c.subCategory)
         )];
-        if (subs.length === 0) return '';
+        // The "+ Baru" chip ALWAYS shows when a category is selected, even
+        // when there are no existing subs yet — gives the user an easy
+        // path to create a sub for a category that's currently sub-less.
+        const subChips = subs.map((s) => `
+              <button type="button" class="qa-chip ${draft.subCategory === s ? 'active' : ''}" data-qa-sub="${escapeAttr(s)}">${escapeAttr(s)}</button>`).join('');
+        const addChip = `
+              <button type="button" class="qa-chip qa-chip-add" id="qaNewSubBtn" title="Tambah sub-kategori baru">＋ Baru</button>`;
         return `
           <div class="qa-section-label" style="margin-top:10px;">Sub-Kategori <span style="color:var(--text-muted);font-weight:500;text-transform:none;letter-spacing:0;">(opsional)</span></div>
           <div class="qa-subcats">
-            ${subs.map((s) => `
-              <button type="button" class="qa-chip ${draft.subCategory === s ? 'active' : ''}" data-qa-sub="${escapeAttr(s)}">${escapeAttr(s)}</button>`).join('')}
+            ${subChips}
+            ${addChip}
           </div>`;
       }
 
@@ -14570,6 +14589,43 @@ Use the user input carefully, but keep the output minimal and structured. Return
             newCat.iconColor = '#64748b';
             step = 'newcat';
             refresh();
+          });
+          // "+ Baru" inside the sub-category strip — adds a new sub
+          // under the currently-selected parent category WITHOUT going
+          // through the full new-category step (which also asks for an
+          // icon). Sub-categories don't carry their own icons in this
+          // app — they inherit the parent's — so a quick prompt is
+          // enough. Dedupe is case-insensitive.
+          document.getElementById('qaNewSubBtn')?.addEventListener('click', () => {
+            captureFields();
+            if (!draft.category) { toast('Pilih kategori dulu.', 'warning'); return; }
+            const raw = window.prompt(`Tambah sub-kategori baru untuk "${draft.category}":`, '');
+            if (raw == null) return; // user cancelled
+            const trimmed = String(raw).trim();
+            if (!trimmed) return;
+            const existing = state.categories.find((c) =>
+              c.type === draft.type &&
+              c.category === draft.category &&
+              String(c.subCategory || '').toLowerCase() === trimmed.toLowerCase()
+            );
+            if (existing) {
+              // Just select the existing one instead of erroring out —
+              // user likely typed something they forgot was already there.
+              draft.subCategory = existing.subCategory;
+              refresh();
+              toast(`"${existing.subCategory}" sudah ada — dipilih.`);
+              return;
+            }
+            state.categories.push({
+              type: draft.type,
+              category: draft.category,
+              subCategory: trimmed,
+              example: '',
+            });
+            saveState();
+            draft.subCategory = trimmed;
+            refresh();
+            toast(`Sub-kategori "${trimmed}" ditambahkan ✓`);
           });
           document.querySelectorAll('#qaKeypad [data-qa-key]').forEach((btn) => {
             btn.addEventListener('click', () => handleKey(btn.dataset.qaKey));
