@@ -6022,7 +6022,7 @@
                 <div class="row-between">
                   <div>
                     <div style="font-weight: 600;">Import data</div>
-                    <div class="text-sm text-muted">Dukung JSON backup, CSV, atau XLSX. Header yang dibaca: <em>Date, Type, Transaction Name, Transaction Category, Sub-Category, Value, Account, From Account, To Account</em>. Type "Transfer" akan pakai From/To Account; Income/Expense pakai Account.</div>
+                    <div class="text-sm text-muted">Dukung JSON backup, CSV, atau XLSX. Kolom harus sesuai dengan format seperti saat export data.</div>
                   </div>
                   <div>
                     <input type="file" id="fileImport" accept=".json,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;" />
@@ -9304,7 +9304,7 @@ Use the user input carefully, but keep the output minimal and structured. Return
       { key: 'banks',       label: 'Bank Accounts',       icon: '🏦', placeholder: 'e.g. BCA, BNI, Mandiri' },
       { key: 'investments', label: 'Investment Accounts', icon: '📈', placeholder: 'e.g. Bibit, Ajaib, Stockbit' },
       { key: 'eWallets',    label: 'E-Wallets',           icon: '📱', placeholder: 'e.g. GoPay, OVO, Dana' },
-      { key: 'creditCards', label: 'Credit Cards',        icon: '💳', placeholder: 'e.g. BCA Card, BNI Visa', kind: 'liability', subtitle: 'Isi tagihan saat ini (positif). Saldo otomatis tersimpan minus jadi net worth ikut terhitung.' },
+      { key: 'creditCards', label: 'Credit Cards',        icon: '💳', placeholder: 'e.g. BCA Card, BNI Visa', kind: 'liability' }
     ];
 
     // Bulk re-tag modal — three modes for retroactive account assignment.
