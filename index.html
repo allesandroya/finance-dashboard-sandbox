@@ -7924,11 +7924,33 @@ Use the user input carefully, but keep the output minimal and structured. Return
         };
         if (Array.isArray(images) && images.length) payload.images = images;
 
-        const res = await fetch(CONFIG.WORKER_URL + '/api/ai/parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify(payload),
-        });
+        // Auto-retry once on transient errors (5xx from worker / Mistral
+        // upstream, or a network failure that throws before res lands).
+        // Most "AI cannot retrieve" errors from Mistral resolve on a
+        // second attempt, so paying ~700ms extra latency in the rare bad
+        // case is worth saving the user from a fallback-to-rules round.
+        // 4xx (auth, quota, plan gate) are NOT retried — the underlying
+        // condition won't change in 700ms.
+        let res = null;
+        let netErr = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          netErr = null;
+          try {
+            res = await fetch(CONFIG.WORKER_URL + '/api/ai/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...authHeaders() },
+              body: JSON.stringify(payload),
+            });
+          } catch (e) {
+            netErr = e;
+          }
+          if (!netErr && (res.ok || res.status < 500)) break;
+          if (attempt < 2) {
+            try { console.warn('[parseWithAI] retry after', netErr ? 'network err' : 'status ' + res.status); } catch {}
+            await new Promise((r) => setTimeout(r, 700));
+          }
+        }
+        if (netErr) throw netErr;
         if (res.status === 401) {
           toast('Sesi kamu berakhir. Silakan login ulang.', 'warning');
           doLogout();
@@ -8012,7 +8034,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
         // user hit ("AI fallback to parser instead of saying kuota habis").
         if (err && err.code === 'quota_exceeded') throw err;
         console.error(err);
-        toast(`AI gagal: ${err.message}. Fallback ke rules-based.`, 'error');
+        // Friendlier copy that doesn't expose the upstream error string.
+        // Raw err.message stays in console for debugging — the user-
+        // facing message just frames the fallback as "AI overloaded,
+        // we did our best, you can fix it" instead of leaking the
+        // technical "Upstream AI error" / "Worker: 502" detail.
+        toast('AI lagi overload, edit transaksi jika hasil salah, atau coba chat ulang.', 'warning');
         return [parseWithRules(text)];
       }
     }
@@ -13527,7 +13554,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
             ts: Date.now(),
           });
         } else {
-          state.messages.push({ role: 'bot', text: `Gagal memproses: ${err.message}`, ts: Date.now() });
+          // Generic fallback for non-quota errors. parseWithAI now
+          // catches AI / network errors and falls back to the rules
+          // parser internally (with the "AI lagi overload" toast), so
+          // this path is rare — usually only fires when the error
+          // happens BEFORE parseWithAI runs (payload build, etc.).
+          state.messages.push({ role: 'bot', text: 'AI lagi overload, edit transaksi jika hasil salah, atau coba chat ulang.', ts: Date.now() });
         }
         saveState();
         renderChat();
