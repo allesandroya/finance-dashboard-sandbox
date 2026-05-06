@@ -13636,24 +13636,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
       );
       if (dup) return null;
       // Look for a sibling row with the same parent category — if found,
-      // inherit its iconKey / iconColor and the canonical capitalization
-      // of the category name. Without this, AI-coined subs under an
-      // existing category got the neutral grey "tag" icon while their
-      // siblings had the proper themed icon (e.g. "Donation / Charity"
-      // showed the heart icon for "Zakat / Sedekah" but a generic tag
-      // for "Charity"). Same parent → same icon, always.
+      // inherit canonical capitalization + icon. Don't require
+      // c.iconKey to be set: seed categories never had iconKey stored,
+      // their icons come from the regex-driven deriveCategoryIconKey()
+      // fallback. Use that same resolver so AI-coined subs get the
+      // exact icon their siblings render with.
       const sibling = state.categories.find((c) =>
         c.type === type &&
-        String(c.category).toLowerCase() === cat.toLowerCase() &&
-        c.iconKey
+        String(c.category).toLowerCase() === cat.toLowerCase()
       );
+      const inferred = sibling ? deriveCategoryIconKey(sibling) : { key: 'tag', color: '#64748b' };
       const row = {
         type,
         category: sibling ? sibling.category : cat,
         subCategory: sub,
         example: '',
-        iconKey:   sibling ? sibling.iconKey   : 'tag',
-        iconColor: sibling ? sibling.iconColor : '#64748b',
+        iconKey:   (sibling && sibling.iconKey)   || inferred.key   || 'tag',
+        iconColor: (sibling && sibling.iconColor) || inferred.color || '#64748b',
       };
       state.categories.push(row);
       return row;
@@ -13983,7 +13982,14 @@ Use the user input carefully, but keep the output minimal and structured. Return
     }
 
     // ============ MODAL ============
+    // Track scroll position across modal open/close. The CSS rule
+    // `html.modal-open, body.modal-open { overflow: hidden; height: 100%; }`
+    // collapses the document to viewport height while the modal is up,
+    // which silently forces window.scrollY to 0. Without preserving and
+    // restoring it, every modal close jumps the page back to the top.
+    let _modalScrollY = 0;
     function openModal({ title, body, actions = [] }) {
+      _modalScrollY = window.scrollY || window.pageYOffset || 0;
       document.getElementById('modalTitle').textContent = title;
       document.getElementById('modalBody').innerHTML = body;
       const foot = document.getElementById('modalFooter');
@@ -14007,6 +14013,15 @@ Use the user input carefully, but keep the output minimal and structured. Return
       document.getElementById('modal').classList.remove('open');
       document.body.classList.remove('modal-open');
       document.documentElement.classList.remove('modal-open');
+      // Restore the page scroll the user had before the modal opened —
+      // the height:100%/overflow:hidden lock zeroed it out during display.
+      // RAF defers so the browser applies the unlocked styles first; an
+      // immediate scrollTo on a still-locked document is silently dropped.
+      if (_modalScrollY > 0) {
+        const y = _modalScrollY;
+        _modalScrollY = 0;
+        requestAnimationFrame(() => { window.scrollTo(0, y); });
+      }
     }
 
     // -------- Daily quota --------
@@ -14947,11 +14962,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
               toast(`"${existing.subCategory}" sudah ada — dipilih.`);
               return;
             }
+            // Inherit parent's icon so the new sub gets the same visual
+            // treatment as its siblings. deriveCategoryIconKey covers
+            // both explicit-iconKey rows and seed-regex fallbacks.
+            const _siblingForIcon = state.categories.find((c) =>
+              c.type === draft.type &&
+              String(c.category).toLowerCase() === String(draft.category).toLowerCase()
+            );
+            const _inferredIcon = _siblingForIcon
+              ? deriveCategoryIconKey(_siblingForIcon)
+              : { key: 'tag', color: '#64748b' };
             state.categories.push({
               type: draft.type,
               category: draft.category,
               subCategory: trimmed,
               example: '',
+              iconKey:   (_siblingForIcon && _siblingForIcon.iconKey)   || _inferredIcon.key   || 'tag',
+              iconColor: (_siblingForIcon && _siblingForIcon.iconColor) || _inferredIcon.color || '#64748b',
             });
             saveState();
             draft.subCategory = trimmed;
@@ -15210,16 +15237,24 @@ Use the user input carefully, but keep the output minimal and structured. Return
     // inheritance as the QuickAdd add-sub flow.
     function openAddSubCategoryModal(parentName, type) {
       if (!parentName) return;
-      // Find a sibling row to inherit icon from. The parent is matched
-      // case-insensitively so "donation / charity" still finds rows
-      // saved as "Donation / Charity".
+      // Find a sibling row to inherit identity (canonical capitalization
+      // + icon) from. We DON'T require c.iconKey here — most seed
+      // categories never had iconKey written to them; their icons come
+      // from the regex-driven deriveCategoryIconKey() fallback. Matching
+      // is case-insensitive so "donation / charity" still finds
+      // "Donation / Charity" rows.
       const sibling = state.categories.find((c) =>
         c.type === type &&
-        String(c.category).toLowerCase() === String(parentName).toLowerCase() &&
-        c.iconKey
+        String(c.category).toLowerCase() === String(parentName).toLowerCase()
       );
-      const startKey = (sibling && sibling.iconKey) || 'tag';
-      const startColor = (sibling && sibling.iconColor) || '#64748b';
+      // deriveCategoryIconKey resolves the row to {key, color} using
+      // the explicit iconKey if set, else the seed-category regex
+      // fallback. Result is what the rest of the UI shows, so the
+      // pre-selected icon here will visually match what the user sees
+      // on the group header.
+      const inferred = sibling ? deriveCategoryIconKey(sibling) : { key: 'tag', color: '#64748b' };
+      const startKey   = (sibling && sibling.iconKey)   || inferred.key   || 'tag';
+      const startColor = (sibling && sibling.iconColor) || inferred.color || '#64748b';
       const canonicalParent = sibling ? sibling.category : parentName;
       const iconTiles = QA_ICON_OPTIONS.map((opt) => `
         <button type="button"
