@@ -5840,10 +5840,20 @@
               Transactions
               <span class="sheet-tab-count" id="countTxn">0</span>
             </button>
-            <!-- Categories tab moved to its own Setup nav slot. Standalone
-                 view is the single source of truth; legacy renderCategories
-                 still keeps the table layout alive for any deep link that
-                 lands on sheetTab=categories. -->
+            <!-- Categories tab is hidden from the user (display:none) but
+                 kept in the DOM so renderSheets() can still find a button
+                 to activate when the standalone Categories route lands
+                 here with sheetTab='categories'. Without this, the strip
+                 had no matching tab for the active pane → the page
+                 rendered with the categories pane visible but no active
+                 tab in the strip, which confused the layout (visible in
+                 the user-reported screenshot). The new Categories nav
+                 slot in the sidebar is the user-facing entry point. -->
+            <button class="sheet-tab" data-sheet="categories" style="display:none;" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/></svg>
+              Categories
+              <span class="sheet-tab-count" id="countCat">0</span>
+            </button>
             <button class="sheet-tab" data-sheet="dictionary" id="sheetTabDictionary">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               Dictionary <span class="badge-admin" title="Admin only">👑</span>
@@ -17120,6 +17130,12 @@ Use the user input carefully, but keep the output minimal and structured. Return
         // detect the re-tap correctly.
         if (_activeNavKey === target && target !== 'chat') {
           _scrollViewToTop();
+          // Close the slide-out side panel on mobile too — without
+          // this, re-tapping the active nav item scrolls but leaves
+          // the panel open, which felt like the tap "didn't work."
+          // navigateTo() already calls closeSidebarMobile on the
+          // non-re-tap path; this brings parity for re-tap.
+          try { closeSidebarMobile(); } catch {}
           return;
         }
         navigateTo(target);
