@@ -7699,6 +7699,7 @@ Transfer type (money moved between user's own accounts - NEVER use Income or Exp
 - Transaction Category = "Transfer".
 - Sub-Category = "Goal Contribution" when the destination is a goal account (type "goal" in the list), otherwise "Account Transfer".
 - If the user mentions a destination but NOT a source (e.g. "nabung emergency 500rb"), still emit Transfer with fromAccount: "" (empty string) - the user can fill source in later.
+- CRITICAL: fromAccount and toAccount MUST be exact names from the User's accounts list above (case-sensitive matters because the app uses string comparison). Do NOT invent account names that aren't in the list — if the user says "pake bca" but no "BCA" is in their list, leave fromAccount empty rather than guessing. Example: user has only "Bca credit" + "Cash" and writes "bayar tagihan credit 1jt pake bca" → fromAccount: "" (since "BCA" is not in the list), toAccount: "Bca credit". Don't fabricate "BCA".
 - Examples:
   • "nabung ke emergency fund 500rb pake bca" → Type: "Transfer", fromAccount: "BCA", toAccount: "Emergency Fund", Category: "Transfer", Sub-Category: "Goal Contribution"
   • "setor laptop baru 200rb dari gopay" → Type: "Transfer", fromAccount: "GoPay", toAccount: "Laptop Baru", Category: "Transfer", Sub-Category: "Goal Contribution"
@@ -7853,6 +7854,23 @@ Use the user input carefully, but keep the output minimal and structured. Return
           const match = getAccountCatalog().find((a) => a.name.toLowerCase() === wanted);
           if (match) parsed.account = match.name;
           else delete parsed.account;
+        }
+      }
+      // Same resolution for Transfer's fromAccount + toAccount. Without
+      // this, AI's casing drift ("BCA Credit" vs the actual "Bca credit")
+      // breaks the per-account balance math because accountBalance does
+      // an exact string match — the transfer would be visible in Recent
+      // but never affect either side's balance. Hallucinated account
+      // names ("BCA" when the user has no BCA account) are dropped, so
+      // the existing fmtTransferRoute() chip surfaces a warning instead.
+      if (parsed.Type === 'Transfer') {
+        for (const fld of ['fromAccount', 'toAccount']) {
+          if (parsed[fld] == null) continue;
+          const wanted = String(parsed[fld]).trim().toLowerCase();
+          if (!wanted) { delete parsed[fld]; continue; }
+          const match = getAccountCatalog().find((a) => a.name.toLowerCase() === wanted);
+          if (match) parsed[fld] = match.name;
+          else delete parsed[fld]; // unknown name → drop, warning chip will show
         }
       }
       // Last-resort detection - if AI missed it but the original text contains
